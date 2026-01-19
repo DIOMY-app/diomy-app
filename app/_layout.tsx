@@ -9,20 +9,22 @@ export default function RootLayout() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      // TypeScript voit "auth" sans parenthèses dans segments
-      const inAuthGroup = segments[0] === 'auth';
+      // ✅ CORRECTION : On vérifie si 'auth' est présent dans le segment, peu importe sa forme
+      const currentSegment = segments[0] ? (segments[0] as string) : "";
+      const inAuthGroup = currentSegment.includes('auth');
       
       if (!session && !inAuthGroup) {
-        // @ts-ignore - Route valide mais types Expo Router incomplets
+        // @ts-ignore
         router.replace('/(auth)/setup-profile');
       } else if (session && inAuthGroup) {
-        // @ts-ignore - Route valide mais types Expo Router incomplets
+        // @ts-ignore
         router.replace('/(tabs)/map');
       }
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const inAuthGroup = segments[0] === 'auth';
+      const currentSegment = segments[0] ? (segments[0] as string) : "";
+      const inAuthGroup = currentSegment.includes('auth');
       
       if (!session && !inAuthGroup) {
         // @ts-ignore
@@ -36,7 +38,7 @@ export default function RootLayout() {
     return () => {
       authListener?.subscription.unsubscribe();
     };
-  }, [segments]);
+  }, [segments]); // Les segments sont la clé ici
 
   return <Slot />;
 }

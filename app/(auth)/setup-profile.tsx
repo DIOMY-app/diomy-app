@@ -9,25 +9,21 @@ export default function SetupProfile() {
   const [loading, setLoading] = useState(false);
 
   const selectRoleAndProceed = async (role: 'passager' | 'chauffeur') => {
-    if (loading) return; // Éviter les doubles clics
+    if (loading) return; 
     
-    console.log('🔵 Starting role selection:', role);
     setLoading(true);
     
     try {
       // Sauvegarder le rôle dans AsyncStorage
       await AsyncStorage.setItem('user_role', role);
-      console.log('✅ Role saved in AsyncStorage');
       
       // Petit délai pour l'UX
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      console.log('🔵 Navigating to login...');
+      // Navigation vers login (chemin complet pour éviter les erreurs d'aiguillage)
+      // @ts-ignore
+      router.replace('/(auth)/login');
       
-      // Navigation avec replace pour ne pas pouvoir revenir en arrière
-      router.replace('/auth/login');
-      
-      console.log('✅ Navigation called');
     } catch (error) {
       console.error('🔴 Error during role selection:', error);
       setLoading(false);
@@ -50,7 +46,6 @@ export default function SetupProfile() {
         <Text style={styles.subtitle}>Sélectionnez comment vous souhaitez utiliser l'application à Korhogo</Text>
 
         <View style={styles.cardsContainer}>
-          {/* CARTE PASSAGER */}
           <TouchableOpacity 
             style={[styles.card, { borderLeftColor: '#1e3a8a', borderLeftWidth: 8 }]} 
             onPress={() => selectRoleAndProceed('passager')}
@@ -66,7 +61,6 @@ export default function SetupProfile() {
             </View>
           </TouchableOpacity>
 
-          {/* CARTE CHAUFFEUR */}
           <TouchableOpacity 
             style={[styles.card, { borderLeftColor: '#f59e0b', borderLeftWidth: 8 }]} 
             onPress={() => selectRoleAndProceed('chauffeur')}
