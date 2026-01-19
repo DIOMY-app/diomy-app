@@ -30,7 +30,6 @@ export default function ProfileScreen() {
 
   useEffect(() => {
     fetchData();
-    // ✅ SYNC SÉCURISÉE : On n'écoute que les changements de mon propre profil
     const channel = supabase
       .channel('profile-sync')
       .on('postgres_changes', { 
@@ -38,7 +37,6 @@ export default function ProfileScreen() {
         schema: 'public', 
         table: 'profiles'
       }, (payload) => {
-        // Uniquement si c'est mon profil et que je ne suis pas en train de charger
         if (payload.new.id === profile?.id && !loading) {
           fetchData();
         }
@@ -46,7 +44,7 @@ export default function ProfileScreen() {
       .subscribe();
 
     return () => { supabase.removeChannel(channel); };
-  }, [profile?.id]); // ✅ Dépendance ajoutée
+  }, [profile?.id]);
 
   async function fetchData() {
     try {
@@ -186,8 +184,6 @@ export default function ProfileScreen() {
 
   async function handleSignOut() {
     await supabase.auth.signOut();
-    if (Platform.OS === 'web') { window.location.href = "/"; } 
-    else { router.replace("/(auth)/login" as any); }
   }
 
   if (loading && !refreshing) return <View style={styles.centered}><ActivityIndicator size="large" color="#1e3a8a" /></View>;
@@ -195,7 +191,9 @@ export default function ProfileScreen() {
   return (
     <View style={[styles.mainWrapper, { paddingTop: insets.top }]}>
       <ScrollView 
-        style={styles.container} 
+        style={styles.container}
+        // ✅ Correction Ergonomie : On ajoute un gros padding en bas pour que le bouton dépasse la barre de nav
+        contentContainerStyle={{ paddingBottom: 120 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); fetchData();}} />}
       >
         <View style={styles.header}>
@@ -283,6 +281,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        {/* ✅ Bouton de déconnexion avec marge haute pour le détacher de la liste */}
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Déconnexion</Text>
         </TouchableOpacity>
@@ -341,7 +340,7 @@ const styles = StyleSheet.create({
   historyPrice: { fontSize: 14, fontWeight: 'bold', color: '#1e3a8a' },
   emptyBox: { padding: 10, alignItems: 'center' },
   emptyText: { color: '#94a3b8', fontSize: 12 },
-  signOutBtn: { backgroundColor: '#fee2e2', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 10, marginBottom: 40 },
+  signOutBtn: { backgroundColor: '#fee2e2', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 30, marginBottom: 20 },
   signOutText: { color: '#ef4444', fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { backgroundColor: '#fff', padding: 25, borderRadius: 25, width: width * 0.85 },
