@@ -1,73 +1,42 @@
-import React, { useEffect, useState } from 'react';
-import { Stack, useRouter, useSegments } from 'expo-router';
-import * as SplashScreen from 'expo-splash-screen';
-import { StatusBar } from 'expo-status-bar';
-import { SafeAreaProvider } from 'react-native-safe-area-context';
-import { supabase } from '../lib/supabase'; 
-
-// On maintient le Splash Screen affiché au démarrage
-SplashScreen.preventAutoHideAsync();
+import { Slot } from 'expo-router';
+import { useEffect } from 'react';
+import { useRouter, useSegments } from 'expo-router';
+import { supabase } from '@/lib/supabase';
 
 export default function RootLayout() {
-  const [appIsReady, setAppIsReady] = useState(false);
-  const [session, setSession] = useState<any>(null);
   const router = useRouter();
   const segments = useSegments();
 
   useEffect(() => {
-    async function prepare() {
-      try {
-        // 1. Vérifier la session Supabase
-        const { data } = await supabase.auth.getSession();
-        setSession(data.session);
-
-        // 2. Pause pour le logo DIOMY
-        await new Promise(resolve => setTimeout(resolve, 2000));
-      } catch (e) {
-        console.warn("Erreur au chargement:", e);
-      } finally {
-        setAppIsReady(true);
-      }
-    }
-    prepare();
-  }, []);
-
-  // ✅ LOGIQUE DE NAVIGATION SANS ERREUR TS
-  useEffect(() => {
-    if (!appIsReady) return;
-
-    // TypeScript nous dit que segments[0] peut être "auth" ou "(tabs)" etc.
-    // On force la vérification sur "auth" sans les parenthèses
-    const currentSegment = segments[0] as string;
-    const inAuthGroup = currentSegment === 'auth';
-
-    if (session) {
-      // Si connecté et encore dans les pages de connexion -> Go vers la carte
-      if (inAuthGroup) {
-        router.replace('/(tabs)/map' as any);
-      }
-    } else {
-      // Si non connecté et pas dans auth -> Go vers le choix du profil
-      if (!inAuthGroup) {
-        router.replace('/auth/setup-profile' as any); 
-      }
-    }
-
-    SplashScreen.hideAsync();
-  }, [appIsReady, session, segments]);
-
-  if (!appIsReady) return null;
-
-  return (
-    <SafeAreaProvider>
-      <StatusBar style="light" /> 
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      // TypeScript voit "auth" sans parenthèses dans segments
+      const inAuthGroup = segments[0] === 'auth';
       
-      <Stack screenOptions={{ headerShown: false }}>
-        {/* ✅ Ici on garde les noms exacts des Stack.Screen */}
-        <Stack.Screen name="(auth)" options={{ headerShown: false }} />
-        <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
-        <Stack.Screen name="become-driver" options={{ headerShown: false }} />
-      </Stack>
-    </SafeAreaProvider>
-  );
+      if (!session && !inAuthGroup) {
+        // @ts-ignore - Route valide mais types Expo Router incomplets
+        router.replace('/(auth)/setup-profile');
+      } else if (session && inAuthGroup) {
+        // @ts-ignore - Route valide mais types Expo Router incomplets
+        router.replace('/(tabs)/map');
+      }
+    });
+
+    const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
+      const inAuthGroup = segments[0] === 'auth';
+      
+      if (!session && !inAuthGroup) {
+        // @ts-ignore
+        router.replace('/(auth)/setup-profile');
+      } else if (session && inAuthGroup) {
+        // @ts-ignore
+        router.replace('/(tabs)/map');
+      }
+    });
+
+    return () => {
+      authListener?.subscription.unsubscribe();
+    };
+  }, [segments]);
+
+  return <Slot />;
 }
