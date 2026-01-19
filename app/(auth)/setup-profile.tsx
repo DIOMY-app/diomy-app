@@ -20,12 +20,11 @@ export default function SetupProfile() {
       // 2. Petit délai pour l'UX
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // 3. NAVIGATION CORRIGÉE
-      // On utilise '/auth/login' comme suggéré par l'erreur TypeScript.
-      // Le 'as any' est une sécurité supplémentaire pour forcer le passage 
-      // si le cache de typage d'Expo n'est pas à jour.
+      // 3. ✅ CORRECTION CRITIQUE (Solution Claude)
+      // On remet les parenthèses car Android les exige pour trouver le dossier physique
+      // On utilise 'as any' pour ignorer l'erreur TypeScript (2820)
       router.replace({
-        pathname: '/auth/login' as any,
+        pathname: '/(auth)/login' as any,
         params: { role: role }
       });
       

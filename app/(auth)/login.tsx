@@ -51,6 +51,7 @@ export default function AuthScreen() {
         if (signUpError) throw signUpError;
 
         if (data.user) {
+          // Création du profil public
           const { error: profileError } = await supabase.from('profiles').upsert({ 
             id: data.user.id, 
             full_name: fullName, 
@@ -60,6 +61,7 @@ export default function AuthScreen() {
           });
           if (profileError) throw profileError;
 
+          // Insertion dans la table spécifique au rôle
           const { error: dbError } = await supabase.from(selectedRole).upsert({ 
             id: data.user.id, 
             full_name: fullName, 
@@ -74,7 +76,8 @@ export default function AuthScreen() {
         });
         if (signInError) throw signInError;
       }
-      // La redirection est gérée par le listener dans app/_layout.tsx
+
+      // La redirection est gérée par le listener dans app/_layout.tsx (SIGNED_IN)
     } catch (error: any) {
       Alert.alert('Erreur', "Vérifiez vos identifiants ou votre connexion.");
       console.error(error.message);
@@ -88,8 +91,9 @@ export default function AuthScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            {/* ✅ CORRECTION : Route typée sans parenthèses pour satisfaire TS */}
-            <TouchableOpacity onPress={() => router.replace('/auth/setup-profile' as any)}>
+            {/* ✅ CORRECTION CRITIQUE : Utiliser le chemin avec parenthèses pour Android */}
+            {/* On utilise 'as any' pour satisfaire le typage TypeScript tout en gardant la route stable */}
+            <TouchableOpacity onPress={() => router.replace("/(auth)/setup-profile" as any)}>
               <Ionicons name="arrow-back" size={28} color="#1e3a8a" />
             </TouchableOpacity>
           </View>
