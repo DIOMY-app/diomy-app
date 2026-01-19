@@ -17,10 +17,11 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // ✅ Logique : Rôle interne vs Nom de la table
-  const userRole = initialRole === 'chauffeur' ? 'chauffeur' : 'passager';
-  const tableName = userRole === 'chauffeur' ? 'conducteurs' : 'passagers';
-  const displayRole = userRole === 'chauffeur' ? 'Conducteur Moto' : 'Passager';
+  // ✅ ALIGNEMENT STRICT AVEC TA BASE DE DONNÉES
+  // initialRole vient de setup-profile ('chauffeur' ou 'passager')
+  // On convertit pour match tes colonnes : 'conducteurs' ou 'passagers'
+  const dbRole = initialRole === 'chauffeur' ? 'conducteurs' : 'passagers';
+  const displayRole = initialRole === 'chauffeur' ? 'Conducteur Moto' : 'Passager';
 
   async function handleAuth() {
     if (isRegistering && !fullName) {
@@ -46,33 +47,34 @@ export default function AuthScreen() {
           email: internalId, 
           password: password,
           options: { 
-            data: { full_name: fullName, role: userRole, phone_number: phone } 
+            data: { full_name: fullName, role: dbRole, phone_number: phone } 
           }
         });
 
         if (signUpError) throw signUpError;
 
         if (data.user) {
-          // 2. Création du profil public
+          // 2. Création du profil (Table profiles)
+          // On utilise dbRole ('conducteurs' ou 'passagers')
           const { error: profileError } = await supabase.from('profiles').upsert({ 
             id: data.user.id, 
             full_name: fullName, 
-            role: userRole, 
+            role: dbRole, 
             phone_number: phone, 
-            status: userRole === 'chauffeur' ? 'nouveau' : 'valide',
+            status: dbRole === 'conducteurs' ? 'nouveau' : 'valide',
             updated_at: new Date()
           });
           if (profileError) throw profileError;
 
-          // 3. Insertion dans la table spécifique (conducteurs ou passagers)
-          const { error: dbError } = await supabase.from(tableName).upsert({ 
+          // 3. Insertion dans la table spécifique
+          const { error: dbError } = await supabase.from(dbRole).upsert({ 
             id: data.user.id, 
             full_name: fullName, 
             phone: phone 
           });
           if (dbError) throw dbError;
         }
-        Alert.alert("Succès", "Compte créé ! Connectez-vous maintenant.");
+        Alert.alert("Succès", "Compte créé ! Connectez-vous.");
         setIsRegistering(false);
       } else {
         // Connexion
@@ -83,8 +85,12 @@ export default function AuthScreen() {
         if (signInError) throw signInError;
       }
     } catch (error: any) {
-      console.error("Erreur Auth détaillée:", error.message);
-      Alert.alert('Erreur', "Vérifiez vos identifiants ou votre connexion.");
+      // Pour le debug sur APK, on affiche un message plus précis si possible
+      const errorMessage = error.message === "User already registered" 
+        ? "Ce numéro est déjà utilisé." 
+        : "Erreur d'inscription. Vérifiez votre saisie.";
+      Alert.alert('DIOMY', errorMessage);
+      console.error(error.message);
     } finally { 
       setLoading(false); 
     }
@@ -142,7 +148,7 @@ export default function AuthScreen() {
             </View>
 
             <TouchableOpacity 
-              style={[styles.button, { backgroundColor: userRole === 'chauffeur' ? '#f59e0b' : '#1e3a8a' }]} 
+              style={[styles.button, { backgroundColor: dbRole === 'conducteurs' ? '#f59e0b' : '#1e3a8a' }]} 
               onPress={handleAuth} 
               disabled={loading}
             >
