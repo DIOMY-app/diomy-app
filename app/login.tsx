@@ -17,9 +17,10 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // On sécurise le rôle (par défaut passagers si non spécifié)
-  const selectedRole = initialRole === 'chauffeur' ? 'conducteurs' : 'passagers';
-  const displayRole = selectedRole === 'conducteurs' ? 'Conducteur Moto' : 'Passager';
+  // ✅ Logique : Rôle interne vs Nom de la table
+  const userRole = initialRole === 'chauffeur' ? 'chauffeur' : 'passager';
+  const tableName = userRole === 'chauffeur' ? 'conducteurs' : 'passagers';
+  const displayRole = userRole === 'chauffeur' ? 'Conducteur Moto' : 'Passager';
 
   async function handleAuth() {
     if (isRegistering && !fullName) {
@@ -40,47 +41,50 @@ export default function AuthScreen() {
       const internalId = `${phone}@diomy.local`;
 
       if (isRegistering) {
+        // 1. Inscription Auth
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: internalId, 
           password: password,
           options: { 
-            data: { full_name: fullName, role: selectedRole, phone_number: phone } 
+            data: { full_name: fullName, role: userRole, phone_number: phone } 
           }
         });
 
         if (signUpError) throw signUpError;
 
         if (data.user) {
-          // Création du profil public
+          // 2. Création du profil public
           const { error: profileError } = await supabase.from('profiles').upsert({ 
             id: data.user.id, 
             full_name: fullName, 
-            role: selectedRole, 
+            role: userRole, 
             phone_number: phone, 
+            status: userRole === 'chauffeur' ? 'nouveau' : 'valide',
             updated_at: new Date()
           });
           if (profileError) throw profileError;
 
-          // Insertion dans la table spécifique au rôle
-          const { error: dbError } = await supabase.from(selectedRole).upsert({ 
+          // 3. Insertion dans la table spécifique (conducteurs ou passagers)
+          const { error: dbError } = await supabase.from(tableName).upsert({ 
             id: data.user.id, 
             full_name: fullName, 
             phone: phone 
           });
-          if (dbError) console.error(`Erreur table ${selectedRole}:`, dbError.message);
+          if (dbError) throw dbError;
         }
+        Alert.alert("Succès", "Compte créé ! Connectez-vous maintenant.");
+        setIsRegistering(false);
       } else {
+        // Connexion
         const { error: signInError } = await supabase.auth.signInWithPassword({ 
           email: internalId, 
           password 
         });
         if (signInError) throw signInError;
       }
-
-      // La redirection est gérée par le listener dans app/_layout.tsx (SIGNED_IN)
     } catch (error: any) {
+      console.error("Erreur Auth détaillée:", error.message);
       Alert.alert('Erreur', "Vérifiez vos identifiants ou votre connexion.");
-      console.error(error.message);
     } finally { 
       setLoading(false); 
     }
@@ -91,9 +95,7 @@ export default function AuthScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            {/* ✅ CORRECTION CRITIQUE : Utiliser le chemin avec parenthèses pour Android */}
-            {/* On utilise 'as any' pour satisfaire le typage TypeScript tout en gardant la route stable */}
-            <TouchableOpacity onPress={() => router.replace("/(auth)/setup-profile" as any)}>
+            <TouchableOpacity onPress={() => router.replace("/setup-profile" as any)}>
               <Ionicons name="arrow-back" size={28} color="#1e3a8a" />
             </TouchableOpacity>
           </View>
@@ -140,7 +142,7 @@ export default function AuthScreen() {
             </View>
 
             <TouchableOpacity 
-              style={[styles.button, { backgroundColor: selectedRole === 'conducteurs' ? '#f59e0b' : '#1e3a8a' }]} 
+              style={[styles.button, { backgroundColor: userRole === 'chauffeur' ? '#f59e0b' : '#1e3a8a' }]} 
               onPress={handleAuth} 
               disabled={loading}
             >
