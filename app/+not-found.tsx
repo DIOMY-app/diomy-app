@@ -7,24 +7,25 @@ export default function NotFound() {
   const router = useRouter();
 
   useEffect(() => {
-    console.log('NotFound screen - Redirecting...');
+    console.log('⚠️ Route non trouvée ou changement de structure - Redirection...');
     
-    // Attendre un peu pour laisser l'app se stabiliser
-    setTimeout(() => {
+    const timeout = setTimeout(() => {
       supabase.auth.getSession().then(({ data: { session } }) => {
         if (session) {
           // @ts-ignore
           router.replace('/(tabs)/map');
         } else {
+          // ✅ CORRECTION : On pointe vers la nouvelle route racine
           // @ts-ignore
-          router.replace('/(auth)/setup-profile');
+          router.replace('/setup-profile'); 
         }
       }).catch(() => {
-        // En cas d'erreur, aller vers setup-profile par défaut
         // @ts-ignore
-        router.replace('/(auth)/setup-profile');
+        router.replace('/setup-profile');
       });
     }, 100);
+
+    return () => clearTimeout(timeout);
   }, []);
 
   return (

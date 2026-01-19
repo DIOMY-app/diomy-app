@@ -8,9 +8,11 @@ export default function VerifyOtpScreen() {
   const [otp, setOtp] = useState('');
 
   const handleVerify = () => {
-    // ON RENVOIE LE RÔLE À L'ACCUEIL
+    // ✅ NAVIGATION STABILISÉE
+    // On pointe directement vers la map dans le groupe tabs. 
+    // Cela garantit que l'utilisateur arrive sur la carte immédiatement après validation.
     router.replace({
-      pathname: "/(tabs)",
+      pathname: "/(tabs)/map",
       params: { role: role }
     } as any);
   };
