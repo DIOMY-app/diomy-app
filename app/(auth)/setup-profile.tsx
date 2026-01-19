@@ -2,22 +2,36 @@ import React, { useState } from 'react';
 import { StyleSheet, View, Text, TouchableOpacity, SafeAreaView, ActivityIndicator } from 'react-native';
 import { MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons'; 
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 export default function SetupProfile() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  const selectRoleAndProceed = (role: 'passager' | 'chauffeur') => {
+  const selectRoleAndProceed = async (role: 'passager' | 'chauffeur') => {
+    if (loading) return; // Éviter les doubles clics
+    
+    console.log('🔵 Starting role selection:', role);
     setLoading(true);
     
-    setTimeout(() => {
+    try {
+      // Sauvegarder le rôle dans AsyncStorage
+      await AsyncStorage.setItem('user_role', role);
+      console.log('✅ Role saved in AsyncStorage');
+      
+      // Petit délai pour l'UX
+      await new Promise(resolve => setTimeout(resolve, 300));
+      
+      console.log('🔵 Navigating to login...');
+      
+      // Navigation avec replace pour ne pas pouvoir revenir en arrière
+      router.replace('/auth/login');
+      
+      console.log('✅ Navigation called');
+    } catch (error) {
+      console.error('🔴 Error during role selection:', error);
       setLoading(false);
-      // ✅ CORRECTION : TypeScript suggère /auth/login (sans parenthèses)
-      router.push({
-        pathname: '/auth/login',
-        params: { role: role }
-      });
-    }, 500);
+    }
   };
 
   if (loading) {
@@ -40,6 +54,8 @@ export default function SetupProfile() {
           <TouchableOpacity 
             style={[styles.card, { borderLeftColor: '#1e3a8a', borderLeftWidth: 8 }]} 
             onPress={() => selectRoleAndProceed('passager')}
+            activeOpacity={0.7}
+            disabled={loading}
           >
             <View style={[styles.iconCircle, { backgroundColor: '#e0e7ff' }]}>
               <FontAwesome5 name="user" size={35} color="#1e3a8a" />
@@ -54,6 +70,8 @@ export default function SetupProfile() {
           <TouchableOpacity 
             style={[styles.card, { borderLeftColor: '#f59e0b', borderLeftWidth: 8 }]} 
             onPress={() => selectRoleAndProceed('chauffeur')}
+            activeOpacity={0.7}
+            disabled={loading}
           >
             <View style={[styles.iconCircle, { backgroundColor: '#fef3c7' }]}>
               <MaterialCommunityIcons name="motorbike" size={55} color="#f59e0b" />
