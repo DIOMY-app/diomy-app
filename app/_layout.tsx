@@ -11,7 +11,7 @@ export default function RootLayout() {
   const [sessionInitialized, setSessionInitialized] = useState(false);
 
   useEffect(() => {
-    // 1. Vérification initiale de la session au démarrage
+    // 1. Vérification initiale de la session
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSessionInitialized(true);
       setIsReady(true);
@@ -36,13 +36,11 @@ export default function RootLayout() {
         if (event === 'SIGNED_OUT') {
           console.log("👋 Déconnexion : Nettoyage et redirection forcée");
           
-          // On coupe le rendu pour éviter de charger les onglets sans session
+          // ON COUPE LE RENDU IMMÉDIATEMENT
           setIsReady(false); 
 
-          // Redirection immédiate vers le choix du rôle
-          setTimeout(() => {
-            router.replace('/setup-profile' as any);
-          }, 0);
+          // Redirection immédiate
+          router.replace('/setup-profile' as any);
         }
       }
     );
@@ -52,8 +50,7 @@ export default function RootLayout() {
     };
   }, [segments]); 
   
-  // ✅ Écran de transition blanc pour remplacer le bug turquoise (+not-found)
-  // On ne montre rien (ou un spinner) tant que la session n'est pas vérifiée ou si on déconnecte
+  // ✅ On ne montre PAS le Slot si on est en déconnexion ou non initialisé
   if (!isReady || !sessionInitialized) {
     return (
       <View style={{ flex: 1, backgroundColor: '#fff', justifyContent: 'center', alignItems: 'center' }}>

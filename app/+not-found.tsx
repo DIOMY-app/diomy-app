@@ -7,32 +7,29 @@ export default function NotFound() {
   const router = useRouter();
 
   useEffect(() => {
-    console.log('⚠️ Route non trouvée ou changement de structure - Redirection...');
-    
-    const timeout = setTimeout(() => {
-      supabase.auth.getSession().then(({ data: { session } }) => {
-        if (session) {
-          // @ts-ignore
-          router.replace('/(tabs)/map');
-        } else {
-          // ✅ CORRECTION : On pointe vers la nouvelle route racine
-          // @ts-ignore
-          router.replace('/setup-profile'); 
-        }
-      }).catch(() => {
-        // @ts-ignore
-        router.replace('/setup-profile');
-      });
-    }, 100);
+    // ✅ On réduit le délai au strict minimum pour éviter de voir l'écran trop longtemps
+    const timeout = setTimeout(async () => {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        console.log('🔄 NotFound : Session trouvée, retour Map');
+        router.replace('/(tabs)/map' as any);
+      } else {
+        console.log('🔄 NotFound : Pas de session, retour Setup');
+        router.replace('/setup-profile' as any);
+      }
+    }, 10); // 10ms suffisent pour éviter les conflits de rendu
 
     return () => clearTimeout(timeout);
   }, []);
 
   return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#009199' }}>
-      <ActivityIndicator size="large" color="#ffffff" />
-      <Text style={{ marginTop: 10, color: '#ffffff', fontSize: 16 }}>
-        Chargement de DIOMY...
+    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
+      {/* ✅ Changement du fond en BLANC (#fff) pour que la transition soit invisible 
+          si le _layout affiche aussi un écran blanc */}
+      <ActivityIndicator size="large" color="#1e3a8a" />
+      <Text style={{ marginTop: 10, color: '#1e3a8a', fontSize: 14 }}>
+        Synchronisation...
       </Text>
     </View>
   );

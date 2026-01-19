@@ -183,7 +183,6 @@ export default function ProfileScreen() {
   };
 
   async function handleSignOut() {
-    // ✅ On laisse le layout racine gérer la redirection via SIGNED_OUT
     await supabase.auth.signOut();
   }
 
@@ -193,7 +192,7 @@ export default function ProfileScreen() {
     <View style={[styles.mainWrapper, { paddingTop: insets.top }]}>
       <ScrollView 
         style={styles.container}
-        // ✅ Correction Ergonomie : On augmente le padding pour dépasser la barre de nav
+        // ✅ On maintient un gros padding interne
         contentContainerStyle={{ paddingBottom: 180 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); fetchData();}} />}
       >
@@ -282,10 +281,12 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* ✅ Marge augmentée pour isoler le bouton */}
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Déconnexion</Text>
         </TouchableOpacity>
+
+        {/* ✅ AJOUT D'UNE VUE VIDE FINALE POUR FORCER LE BOUTON À PASSER LA BARRE */}
+        <View style={{ height: 100 }} />
       </ScrollView>
 
       <Modal visible={showFavModal} transparent animationType="slide">
@@ -339,7 +340,6 @@ const styles = StyleSheet.create({
   historyPrice: { fontSize: 14, fontWeight: 'bold', color: '#1e3a8a' },
   emptyBox: { padding: 10, alignItems: 'center' },
   emptyText: { color: '#94a3b8', fontSize: 12 },
-  // ✅ On augmente la marge ici pour bien isoler le bouton du reste
   signOutBtn: { backgroundColor: '#fee2e2', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 50, marginBottom: 20 },
   signOutText: { color: '#ef4444', fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
