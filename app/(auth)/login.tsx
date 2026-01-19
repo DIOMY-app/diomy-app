@@ -51,7 +51,6 @@ export default function AuthScreen() {
         if (signUpError) throw signUpError;
 
         if (data.user) {
-          // Création du profil public
           const { error: profileError } = await supabase.from('profiles').upsert({ 
             id: data.user.id, 
             full_name: fullName, 
@@ -61,7 +60,6 @@ export default function AuthScreen() {
           });
           if (profileError) throw profileError;
 
-          // Insertion dans la table spécifique au rôle
           const { error: dbError } = await supabase.from(selectedRole).upsert({ 
             id: data.user.id, 
             full_name: fullName, 
@@ -76,10 +74,7 @@ export default function AuthScreen() {
         });
         if (signInError) throw signInError;
       }
-
-      // ✅ Note : on ne fait pas de redirection forcée ici. 
-      // Le _layout.tsx racine va détecter la nouvelle session et envoyer vers la Map automatiquement.
-
+      // La redirection est gérée par le listener dans app/_layout.tsx
     } catch (error: any) {
       Alert.alert('Erreur', "Vérifiez vos identifiants ou votre connexion.");
       console.error(error.message);
@@ -93,7 +88,8 @@ export default function AuthScreen() {
       <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={{ flex: 1 }}>
         <ScrollView contentContainerStyle={{ flexGrow: 1 }} keyboardShouldPersistTaps="handled">
           <View style={styles.header}>
-            <TouchableOpacity onPress={() => router.replace("/(auth)/setup-profile" as any)}>
+            {/* ✅ CORRECTION : Route typée sans parenthèses pour satisfaire TS */}
+            <TouchableOpacity onPress={() => router.replace('/auth/setup-profile' as any)}>
               <Ionicons name="arrow-back" size={28} color="#1e3a8a" />
             </TouchableOpacity>
           </View>

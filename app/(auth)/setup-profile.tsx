@@ -21,8 +21,9 @@ export default function SetupProfile() {
       await new Promise(resolve => setTimeout(resolve, 300));
       
       // 3. NAVIGATION CORRIGÉE
-      // On utilise '/auth/login' (sans parenthèses) comme demandé par TypeScript
-      // mais on force le typage pour éviter tout conflit interne.
+      // On utilise '/auth/login' comme suggéré par l'erreur TypeScript.
+      // Le 'as any' est une sécurité supplémentaire pour forcer le passage 
+      // si le cache de typage d'Expo n'est pas à jour.
       router.replace({
         pathname: '/auth/login' as any,
         params: { role: role }
