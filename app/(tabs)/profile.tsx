@@ -183,6 +183,7 @@ export default function ProfileScreen() {
   };
 
   async function handleSignOut() {
+    // ✅ On laisse le layout racine gérer la redirection via SIGNED_OUT
     await supabase.auth.signOut();
   }
 
@@ -192,8 +193,8 @@ export default function ProfileScreen() {
     <View style={[styles.mainWrapper, { paddingTop: insets.top }]}>
       <ScrollView 
         style={styles.container}
-        // ✅ Correction Ergonomie : On ajoute un gros padding en bas pour que le bouton dépasse la barre de nav
-        contentContainerStyle={{ paddingBottom: 120 }}
+        // ✅ Correction Ergonomie : On augmente le padding pour dépasser la barre de nav
+        contentContainerStyle={{ paddingBottom: 180 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); fetchData();}} />}
       >
         <View style={styles.header}>
@@ -281,7 +282,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {/* ✅ Bouton de déconnexion avec marge haute pour le détacher de la liste */}
+        {/* ✅ Marge augmentée pour isoler le bouton */}
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Déconnexion</Text>
         </TouchableOpacity>
@@ -315,13 +316,11 @@ const styles = StyleSheet.create({
   avatarContainer: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderWidth: 3, borderColor: '#fff', elevation: 5 },
   avatarImage: { width: '100%', height: '100%' },
   username: { fontSize: 22, fontWeight: 'bold', color: '#1e293b', marginTop: 10 },
-  
   badgeContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 },
   roleBadge: { backgroundColor: '#1e3a8a', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
   roleText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
   scoreBadge: { backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', elevation: 1 },
   scoreText: { color: '#1e293b', fontSize: 11, fontWeight: 'bold', marginLeft: 4 },
-
   section: { marginBottom: 20 },
   sectionTitle: { fontSize: 14, fontWeight: 'bold', color: '#64748b', marginBottom: 12, textTransform: 'uppercase' },
   infoRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 15, marginBottom: 8, elevation: 1 },
@@ -340,7 +339,8 @@ const styles = StyleSheet.create({
   historyPrice: { fontSize: 14, fontWeight: 'bold', color: '#1e3a8a' },
   emptyBox: { padding: 10, alignItems: 'center' },
   emptyText: { color: '#94a3b8', fontSize: 12 },
-  signOutBtn: { backgroundColor: '#fee2e2', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 30, marginBottom: 20 },
+  // ✅ On augmente la marge ici pour bien isoler le bouton du reste
+  signOutBtn: { backgroundColor: '#fee2e2', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 50, marginBottom: 20 },
   signOutText: { color: '#ef4444', fontWeight: 'bold' },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
   modalContent: { backgroundColor: '#fff', padding: 25, borderRadius: 25, width: width * 0.85 },
