@@ -18,8 +18,6 @@ export default function AuthScreen() {
   const router = useRouter();
 
   // ✅ ALIGNEMENT STRICT AVEC TA BASE DE DONNÉES
-  // initialRole vient de setup-profile ('chauffeur' ou 'passager')
-  // On convertit pour match tes colonnes : 'conducteurs' ou 'passagers'
   const dbRole = initialRole === 'chauffeur' ? 'conducteurs' : 'passagers';
   const displayRole = initialRole === 'chauffeur' ? 'Conducteur Moto' : 'Passager';
 
@@ -39,7 +37,7 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
-      const internalId = `${phone}@diomy.local`;
+      const internalId = `${phone}@diomy.local`.toLowerCase();
 
       if (isRegistering) {
         // 1. Inscription Auth
@@ -47,15 +45,18 @@ export default function AuthScreen() {
           email: internalId, 
           password: password,
           options: { 
-            data: { full_name: fullName, role: dbRole, phone_number: phone } 
+            data: { full_name: fullName, role: dbRole, phone_number: phone }
           }
         });
 
-        if (signUpError) throw signUpError;
+        if (signUpError) {
+          // ✅ Capture de l'erreur 422 ou autre pour affichage sur APK
+          Alert.alert("Erreur Inscription", signUpError.message);
+          throw signUpError;
+        }
 
         if (data.user) {
           // 2. Création du profil (Table profiles)
-          // On utilise dbRole ('conducteurs' ou 'passagers')
           const { error: profileError } = await supabase.from('profiles').upsert({ 
             id: data.user.id, 
             full_name: fullName, 
@@ -64,15 +65,23 @@ export default function AuthScreen() {
             status: dbRole === 'conducteurs' ? 'nouveau' : 'valide',
             updated_at: new Date()
           });
-          if (profileError) throw profileError;
+          
+          if (profileError) {
+            Alert.alert("Erreur Profil", profileError.message);
+            throw profileError;
+          }
 
-          // 3. Insertion dans la table spécifique
+          // 3. Insertion dans la table spécifique (conducteurs ou passagers)
           const { error: dbError } = await supabase.from(dbRole).upsert({ 
             id: data.user.id, 
             full_name: fullName, 
             phone: phone 
           });
-          if (dbError) throw dbError;
+          
+          if (dbError) {
+            Alert.alert(`Erreur Table ${dbRole}`, dbError.message);
+            throw dbError;
+          }
         }
         Alert.alert("Succès", "Compte créé ! Connectez-vous.");
         setIsRegistering(false);
@@ -82,15 +91,14 @@ export default function AuthScreen() {
           email: internalId, 
           password 
         });
-        if (signInError) throw signInError;
+        
+        if (signInError) {
+          Alert.alert("Erreur Connexion", "Identifiants incorrects ou compte non vérifié.");
+          throw signInError;
+        }
       }
     } catch (error: any) {
-      // Pour le debug sur APK, on affiche un message plus précis si possible
-      const errorMessage = error.message === "User already registered" 
-        ? "Ce numéro est déjà utilisé." 
-        : "Erreur d'inscription. Vérifiez votre saisie.";
-      Alert.alert('DIOMY', errorMessage);
-      console.error(error.message);
+      console.error("Auth Error:", error.message);
     } finally { 
       setLoading(false); 
     }
