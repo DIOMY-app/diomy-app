@@ -9,8 +9,13 @@ export default function RootLayout() {
 
   useEffect(() => {
     supabase.auth.getSession().then(({ data: { session } }) => {
-      // ✅ AMÉLIORATION : On vérifie si "auth" est présent n'importe où dans le chemin
-      const inAuthGroup = segments.some(segment => segment.includes('auth'));
+      // ✅ Correction du typage pour supprimer l'erreur 2367
+      const segmentList = segments as string[];
+      
+      // Si les segments sont en cours de chargement (longueur 0), on attend
+      if (segmentList.length === 0) return;
+
+      const inAuthGroup = segmentList.some(segment => segment.includes('auth'));
       
       if (!session && !inAuthGroup) {
         // @ts-ignore
@@ -22,7 +27,10 @@ export default function RootLayout() {
     });
 
     const { data: authListener } = supabase.auth.onAuthStateChange((_event, session) => {
-      const inAuthGroup = segments.some(segment => segment.includes('auth'));
+      const segmentList = segments as string[];
+      if (segmentList.length === 0) return;
+
+      const inAuthGroup = segmentList.some(segment => segment.includes('auth'));
       
       if (!session && !inAuthGroup) {
         // @ts-ignore
@@ -36,7 +44,7 @@ export default function RootLayout() {
     return () => {
       authListener?.subscription.unsubscribe();
     };
-  }, [segments]); // On réagit à chaque micro-changement de segment
+  }, [segments]); 
 
   return <Slot />;
 }
