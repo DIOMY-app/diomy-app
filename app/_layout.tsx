@@ -8,25 +8,30 @@ export default function RootLayout() {
   const segments = useSegments();
 
   useEffect(() => {
-    // ✅ On écoute les événements d'authentification (Login / Logout)
+    // ✅ Écouteur des changements de session (Login/Logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
-        console.log('🔐 Événement Auth:', event);
+        console.log('🔐 Événement Auth détecté:', event);
         
-        // 1. Si l'utilisateur vient de se connecter
+        // On transforme les segments en texte pour faciliter la recherche
+        const currentPath = segments.join('/');
+        
+        // 1. Redirection après Connexion réussie
         if (event === 'SIGNED_IN' && session) {
-          // On ne redirige vers la Map que si l'utilisateur est encore dans les pages d'authentification
-          const inAuthGroup = segments.some(s => s.includes('auth'));
-          if (inAuthGroup) {
+          // On vérifie si le chemin actuel contient 'login' ou 'setup-profile'
+          const isAtStartPages = currentPath.includes('login') || currentPath.includes('setup-profile');
+          
+          if (isAtStartPages) {
             // @ts-ignore
             router.replace('/(tabs)/map');
           }
         }
         
-        // 2. Si l'utilisateur se déconnecte
+        // 2. Redirection après Déconnexion
         if (event === 'SIGNED_OUT') {
           // @ts-ignore
-          router.replace('/(auth)/setup-profile');
+          // On renvoie vers la racine simplifiée
+          router.replace('/setup-profile');
         }
       }
     );
@@ -34,7 +39,7 @@ export default function RootLayout() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [segments]); // On surveille les segments pour savoir où on se trouve lors d'un événement
+  }, [segments]); // Surveille les segments pour savoir quand agir
   
   return <Slot />;
 }

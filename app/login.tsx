@@ -4,7 +4,7 @@ import {
   ActivityIndicator, Alert, Platform, SafeAreaView, 
   ScrollView, KeyboardAvoidingView 
 } from 'react-native';
-import { supabase } from '../../lib/supabase'; 
+import { supabase } from '../lib/supabase'; 
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons'; 
 
