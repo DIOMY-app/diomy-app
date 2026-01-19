@@ -7,16 +7,14 @@ export default function SetupProfile() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  // ✅ CORRECTION DU CHEMIN : Suppression des parenthèses sur 'auth'
   const selectRoleAndProceed = (role: 'passager' | 'chauffeur') => {
     setLoading(true);
     
-    // On simule un petit temps de préparation pour l'UI
     setTimeout(() => {
       setLoading(false);
-      // ✅ Redirection vers /auth/login (sans les parenthèses)
+      // ✅ CORRECTION : TypeScript suggère /auth/login (sans parenthèses)
       router.push({
-        pathname: '/auth/login' as any,
+        pathname: '/auth/login',
         params: { role: role }
       });
     }, 500);
@@ -52,7 +50,7 @@ export default function SetupProfile() {
             </View>
           </TouchableOpacity>
 
-          {/* CARTE CHAUFFEUR - LA MOTO */}
+          {/* CARTE CHAUFFEUR */}
           <TouchableOpacity 
             style={[styles.card, { borderLeftColor: '#f59e0b', borderLeftWidth: 8 }]} 
             onPress={() => selectRoleAndProceed('chauffeur')}
