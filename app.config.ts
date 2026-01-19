@@ -2,8 +2,10 @@
 import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
-const bundleId = "space.manus.diomy.app.t20260107171623";
-const timestamp = bundleId.split(".").pop()?.replace(/^t/, "") ?? "";
+// --- ACQUIS : NOUVEL IDENTIFIANT PRO ---
+const bundleId = "ci.diomy.taxi"; 
+// On conserve le timestamp original pour le scheme afin de ne pas casser les liens profonds existants
+const timestamp = "20260107171623"; 
 const schemeFromBundleId = `manus${timestamp}`;
 
 const env = {
@@ -28,7 +30,6 @@ const config: ExpoConfig = {
   scheme: env.scheme,
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
-  // AJOUT DES IDENTIFIANTS EAS
   extra: {
     supabaseUrl: env.supabaseUrl,
     supabaseAnonKey: env.supabaseAnonKey,
@@ -47,14 +48,25 @@ const config: ExpoConfig = {
     bundleIdentifier: env.iosBundleId,
   },
   android: {
+    // --- ACQUIS : CONFIGURATION FIREBASE ---
+    package: env.androidPackage,
+    googleServicesFile: "./google-services.json", 
     adaptiveIcon: {
       backgroundColor: "#009199", 
       foregroundImage: "./assets/images/icon.png",
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
-    package: env.androidPackage,
-    permissions: ["POST_NOTIFICATIONS"], // Crucial pour les alertes chauffeurs
+    // Permissions optimisées pour DIOMY
+    permissions: [
+      "POST_NOTIFICATIONS", 
+      "ACCESS_COARSE_LOCATION", 
+      "ACCESS_FINE_LOCATION", 
+      "FOREGROUND_SERVICE",
+      "CAMERA",
+      "READ_EXTERNAL_STORAGE",
+      "WRITE_EXTERNAL_STORAGE"
+    ],
     intentFilters: [
       {
         action: "VIEW",
@@ -76,10 +88,18 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
+    // --- ACQUIS MIS À JOUR : IMAGE PICKER (GALERIE + CAMÉRA) ---
+    [
+      "expo-image-picker",
+      {
+        "photosPermission": "Autoriser DIOMY à accéder à vos photos pour personnaliser votre profil.",
+        "cameraPermission": "Autoriser DIOMY à utiliser l'appareil photo pour votre profil."
+      }
+    ],
     [
       "expo-audio",
       {
-        microphonePermission: "Allow $(PRODUCT_NAME) to access your microphone.",
+        microphonePermission: "Autoriser DIOMY à accéder au micro.",
       },
     ],
     [
@@ -106,6 +126,8 @@ const config: ExpoConfig = {
       {
         android: {
           buildArchs: ["armeabi-v7a", "arm64-v8a"],
+          // On force le projet à ne pas inclure de briques Google Maps natives
+          extraMavenRepos: ["https://www.jitpack.io"]
         },
       },
     ],

@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "449734878801",
+    "project_id": "diomy-cfa99",
+    "storage_bucket": "diomy-cfa99.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:449734878801:android:b36793c09108386802ba70",
+        "android_client_info": {
+          "package_name": "ci.diomy.taxi"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyD5NATb8qWJ9kMkZPAh0N-zRkM5RZKmKkA"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

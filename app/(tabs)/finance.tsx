@@ -10,7 +10,8 @@ import {
   Alert,
   Modal,
   TextInput,
-  Clipboard,
+  Clipboard, // ✅ Retour à l'import natif pour supprimer l'erreur module
+  Platform,
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
@@ -23,17 +24,21 @@ export default function FinanceScreen() {
   const [soldeRecharge, setSoldeRecharge] = useState(0); 
   const [activeTab, setActiveTab] = useState<'courses' | 'depots'>('courses');
 
-  // États pour le Modal de Recharge
   const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [amount, setAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false); 
 
+  // États mis à jour pour inclure le nombre de trajets
   const [stats, setStats] = useState({
     totalEarnings: 0,
+    todayEarnings: 0,
+    weekEarnings: 0,
     commissionBase: 0,
     netEarnings: 0,
     rideCount: 0,
+    todayRideCount: 0, 
+    weekRideCount: 0,  
   });
 
   const COMMISSION_RATE = 0.20;
@@ -46,24 +51,42 @@ export default function FinanceScreen() {
 
   useEffect(() => {
     fetchFinanceData();
+
+    const channel = supabase
+      .channel('recharges_realtime')
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'recharges' }, 
+        () => { fetchFinanceData(); }
+      )
+      .on('postgres_changes', 
+        { event: '*', schema: 'public', table: 'rides_request' }, 
+        () => { fetchFinanceData(); }
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(channel);
+    };
   }, []);
 
   async function fetchFinanceData() {
     try {
-      setLoading(true);
+      if (!refreshing) setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 1. Solde
-      const { data: wallet } = await supabase
-        .from('portefeuilles')
-        .select('solde')
-        .eq('user_id', user.id)
+      // 1. APPEL DE LA VUE SQL POUR LE SOLDE NET
+      const { data: soldeData } = await supabase
+        .from('chauffeur_solde_net')
+        .select('solde_disponible')
+        .eq('driver_id', user.id)
         .maybeSingle();
-      
-      setSoldeRecharge(wallet?.solde || 0);
 
-      // 2. Courses terminées
+      if (soldeData) {
+        setSoldeRecharge(Number(soldeData.solde_disponible));
+      }
+
+      // 2. RÉCUPÉRATION DES COURSES
       const { data: rides } = await supabase
         .from('rides_request')
         .select('*')
@@ -71,31 +94,59 @@ export default function FinanceScreen() {
         .eq('status', 'completed');
 
       if (rides) {
-        const sortedRides = rides.sort((a, b) => {
-          const dateA = new Date(a.sent_at || a.created_at).getTime();
-          const dateB = new Date(b.sent_at || b.created_at).getTime();
-          return dateB - dateA;
-        });
-        setRidesHistory(sortedRides);
+        // --- LOGIQUE DE CALCUL ROBUSTE ---
+        const now = new Date();
+        // On crée une chaîne de comparaison YYYY-MM-DD basée sur l'heure locale
+        const offset = now.getTimezoneOffset() * 60000;
+        const localISOTime = (new Date(now.getTime() - offset)).toISOString().split('T')[0];
+
+        const totalBrut = rides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
         
-        const total = sortedRides.reduce((sum, ride) => sum + (Number(ride.price) || 0), 0);
-        const commission = total * COMMISSION_RATE;
-        setStats({
-          totalEarnings: total,
-          commissionBase: commission,
-          netEarnings: total - commission,
-          rideCount: sortedRides.length,
+        // On filtre en comparant simplement les 10 premiers caractères de la date Supabase (YYYY-MM-DD)
+        const todayRides = rides.filter(r => {
+          const dateSupabase = r.created_at || r.sent_at;
+          return dateSupabase && dateSupabase.substring(0, 10) === localISOTime;
         });
+
+        const todayBrut = todayRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
+          
+        // Semaine (7 derniers jours par simplicité et fiabilité)
+        const sevenDaysAgo = new Date();
+        sevenDaysAgo.setDate(now.getDate() - 7);
+
+        const weekRides = rides.filter(r => new Date(r.created_at || r.sent_at).getTime() >= sevenDaysAgo.getTime());
+        const weekBrut = weekRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
+
+        setStats({
+          totalEarnings: totalBrut,
+          todayEarnings: todayBrut,
+          weekEarnings: weekBrut,
+          commissionBase: totalBrut * COMMISSION_RATE,
+          netEarnings: totalBrut * (1 - COMMISSION_RATE),
+          rideCount: rides.length,
+          todayRideCount: todayRides.length, 
+          weekRideCount: weekRides.length,   
+        });
+
+        // --- AFFICHAGE LIMITÉ AUX 20 DERNIÈRES ---
+        const sortedRides = rides
+          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .slice(0, 20); 
+        
+        setRidesHistory(sortedRides);
       }
 
-      // 3. Historique des recharges
-      const { data: recharges } = await supabase
+      // 3. HISTORIQUE DES RECHARGES
+      const { data: allRecharges } = await supabase
         .from('recharges')
         .select('*')
         .eq('driver_id', user.id)
-        .order('created_at', { ascending: false });
+        .order('created_at', { ascending: false })
+        .limit(20);
 
-      if (recharges) setRechargesHistory(recharges);
+      if (allRecharges) {
+        setRechargesHistory(allRecharges);
+      }
 
     } catch (error: any) {
       console.error("Erreur Finance:", error.message);
@@ -128,7 +179,7 @@ export default function FinanceScreen() {
       if (error) throw error;
       setIsSuccess(true);
       setAmount('');
-      fetchFinanceData(); // Rafraîchir l'historique en arrière-plan
+      fetchFinanceData(); 
 
     } catch (err: any) {
       Alert.alert("DIOMY", "Vérifiez votre connexion internet.");
@@ -152,12 +203,21 @@ export default function FinanceScreen() {
     fetchFinanceData();
   };
 
+  // ✅ CORRECTION : Formatage qui gère les dates très longues de Supabase
   const formatDate = (dateValue: any) => {
     if (!dateValue) return "Aujourd'hui";
-    const date = new Date(dateValue);
-    return date.toLocaleDateString('fr-FR', { 
-        day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' 
-    });
+    try {
+      const date = new Date(dateValue);
+      // On extrait manuellement pour éviter les erreurs de limites
+      const j = String(date.getDate()).padStart(2, '0');
+      const m = String(date.getMonth() + 1).padStart(2, '0');
+      const h = String(date.getHours()).padStart(2, '0');
+      const min = String(date.getMinutes()).padStart(2, '0');
+      
+      return `${j}/${m} à ${h}:${min}`;
+    } catch (e) {
+      return "Date non disponible";
+    }
   };
 
   if (loading && !refreshing) {
@@ -174,10 +234,9 @@ export default function FinanceScreen() {
       >
         <View style={styles.header}>
           <Text style={styles.headerTitle}>Portefeuille DIOMY</Text>
-          <Text style={styles.headerSub}>Suivi des gains et recharges</Text>
+          <Text style={styles.headerSub}>Gains et dépôts validés</Text>
         </View>
 
-        {/* CARTE SOLDE */}
         <View style={styles.rechargeCard}>
             <View style={styles.rechargeHeader}>
                 <Text style={styles.rechargeLabel}>SOLDE PRÉPAYÉ DISPONIBLE</Text>
@@ -192,19 +251,28 @@ export default function FinanceScreen() {
             </TouchableOpacity>
         </View>
 
-        {/* STATS RAPIDES */}
         <View style={styles.statsRowMini}>
             <View style={styles.miniStatCard}>
-                <Text style={styles.miniStatLabel}>ENCAISSÉ</Text>
+                <Text style={styles.miniStatLabel}>AUJOURD'HUI ({stats.todayRideCount})</Text>
+                <Text style={[styles.miniStatValue, {color: '#1e3a8a'}]}>{stats.todayEarnings.toLocaleString()} F</Text>
+            </View>
+            <View style={styles.miniStatCard}>
+                <Text style={styles.miniStatLabel}>CETTE SEMAINE ({stats.weekRideCount})</Text>
+                <Text style={[styles.miniStatValue, {color: '#1e3a8a'}]}>{stats.weekEarnings.toLocaleString()} F</Text>
+            </View>
+        </View>
+
+        <View style={styles.statsRowMini}>
+            <View style={styles.miniStatCard}>
+                <Text style={styles.miniStatLabel}>TOTAL ENCAISSÉ ({stats.rideCount})</Text>
                 <Text style={styles.miniStatValue}>{stats.totalEarnings.toLocaleString()} F</Text>
             </View>
             <View style={styles.miniStatCard}>
-                <Text style={styles.miniStatLabel}>NET RÉEL</Text>
+                <Text style={styles.miniStatLabel}>NET CHAUFFEUR</Text>
                 <Text style={[styles.miniStatValue, {color: '#22c55e'}]}>{stats.netEarnings.toLocaleString()} F</Text>
             </View>
         </View>
 
-        {/* ONGLETS HISTORIQUE */}
         <View style={styles.tabContainer}>
             <TouchableOpacity 
                 style={[styles.tab, activeTab === 'courses' && styles.activeTab]} 
@@ -216,12 +284,12 @@ export default function FinanceScreen() {
                 style={[styles.tab, activeTab === 'depots' && styles.activeTab]} 
                 onPress={() => setActiveTab('depots')}
             >
-                <Text style={[styles.tabText, activeTab === 'depots' && styles.activeTabText]}>Mes Dépôts</Text>
+                <Text style={[styles.tabText, activeTab === 'depots' && styles.activeTabText]}>Dépôts</Text>
             </TouchableOpacity>
         </View>
 
-        {/* CONTENU DES ONGLETS */}
         <View style={styles.section}>
+          <Text style={styles.historyLimitText}>Affichage des 20 derniers mouvements</Text>
           {activeTab === 'courses' ? (
             ridesHistory.length === 0 ? (
                 <View style={styles.emptyBox}><Text style={styles.emptyText}>Aucune course terminée.</Text></View>
@@ -230,12 +298,12 @@ export default function FinanceScreen() {
                 <View key={item.id} style={styles.historyItem}>
                     <View style={styles.historyIcon}><FontAwesome5 name="motorcycle" size={16} color="#1e3a8a" /></View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
-                    <Text style={styles.historyDest} numberOfLines={1}>{item.destination_name || "Course"}</Text>
-                    <Text style={styles.historyDate}>{formatDate(item.sent_at || item.created_at)}</Text>
+                      <Text style={styles.historyDest} numberOfLines={1}>{item.destination_name || "Course"}</Text>
+                      <Text style={styles.historyDate}>{formatDate(item.created_at || item.sent_at)}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
-                    <Text style={styles.historyPrice}>{item.price?.toLocaleString()} F</Text>
-                    <Text style={styles.historyCom}>-{(item.price * 0.2).toLocaleString()} F</Text>
+                      <Text style={styles.historyPrice}>{item.price?.toLocaleString()} F</Text>
+                      <Text style={styles.historyCom}>-{(item.price * COMMISSION_RATE).toLocaleString()} F</Text>
                     </View>
                 </View>
                 ))
@@ -247,18 +315,14 @@ export default function FinanceScreen() {
                 rechargesHistory.map((item) => (
                 <View key={item.id} style={styles.historyItem}>
                     <View style={[styles.historyIcon, {backgroundColor: item.statut === 'valide' ? '#dcfce7' : '#fef9c3'}]}>
-                        <Ionicons 
-                            name={item.statut === 'valide' ? "checkmark" : "time"} 
-                            size={18} 
-                            color={item.statut === 'valide' ? "#16a34a" : "#ca8a04"} 
-                        />
+                        <Ionicons name={item.statut === 'valide' ? "checkmark" : "time"} size={18} color={item.statut === 'valide' ? "#16a34a" : "#ca8a04"} />
                     </View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
                         <Text style={styles.historyDest}>Dépôt de {item.montant} F</Text>
                         <Text style={styles.historyDate}>{formatDate(item.created_at)}</Text>
                     </View>
-                    <View style={[styles.statusBadge, {backgroundColor: item.statut === 'valide' ? '#22c55e' : '#eab308'}]}>
-                        <Text style={styles.statusText}>{item.statut === 'valide' ? 'VALIDÉ' : 'EN ATTENTE'}</Text>
+                    <View style={[styles.statusBadgeStyle, {backgroundColor: item.statut === 'valide' ? '#22c55e' : '#eab308'}]}>
+                        <Text style={styles.statusText}>{item.statut?.toUpperCase() || 'EN ATTENTE'}</Text>
                     </View>
                 </View>
                 ))
@@ -277,7 +341,7 @@ export default function FinanceScreen() {
                     <Text style={styles.modalTitle}>Nouveau Dépôt</Text>
                     <TouchableOpacity onPress={closeRecharge}><Ionicons name="close-circle" size={30} color="#64748b" /></TouchableOpacity>
                 </View>
-                <Text style={styles.modalStep}>1. Transférer le montant vers :</Text>
+                <Text style={styles.modalStep}>1. Envoyer l'argent via :</Text>
                 <View style={styles.numContainer}>
                     <TouchableOpacity style={styles.numRow} onPress={() => copyToClipboard(NUMEROS_COLLECTE.orange)}>
                         <Text style={styles.numText}>Orange : <Text style={{fontWeight:'bold'}}>{NUMEROS_COLLECTE.orange}</Text></Text>
@@ -288,8 +352,8 @@ export default function FinanceScreen() {
                         <Ionicons name="copy" size={16} color="#1e3a8a" />
                     </TouchableOpacity>
                 </View>
-                <Text style={styles.modalStep}>2. Confirmer le montant envoyé :</Text>
-                <TextInput style={styles.input} placeholder="Montant (ex: 2000)" keyboardType="numeric" value={amount} onChangeText={setAmount} />
+                <Text style={styles.modalStep}>2. Inscrire le montant envoyé :</Text>
+                <TextInput style={styles.input} placeholder="Montant" keyboardType="numeric" value={amount} onChangeText={setAmount} />
                 <TouchableOpacity style={styles.confirmBtn} onPress={handleManualRecharge}>
                     {isProcessing ? <ActivityIndicator color="#fff" /> : <Text style={styles.confirmBtnText}>VALIDER MA DEMANDE</Text>}
                 </TouchableOpacity>
@@ -297,9 +361,9 @@ export default function FinanceScreen() {
             ) : (
               <View style={{alignItems: 'center', paddingVertical: 20}}>
                   <Ionicons name="checkmark-circle" size={80} color="#22c55e" />
-                  <Text style={{fontSize: 22, fontWeight: 'bold', color: '#1e293b', marginTop: 10}}>Reçu par DIOMY !</Text>
-                  <Text style={{textAlign: 'center', color: '#64748b', marginTop: 10, marginBottom: 25, lineHeight: 20}}>
-                    Votre demande est en cours de traitement. DIOMY créditera votre solde dès réception de votre transfert.
+                  <Text style={{fontSize: 20, fontWeight: 'bold', color: '#1e293b'}}>Demande Reçue !</Text>
+                  <Text style={{textAlign: 'center', color: '#64748b', marginTop: 10, marginBottom: 25}}>
+                    DIOMY créditera votre solde dès réception du transfert.
                   </Text>
                   <TouchableOpacity style={[styles.confirmBtn, {width: '100%'}]} onPress={closeRecharge}>
                     <Text style={styles.confirmBtnText}>RETOURNER AU PORTEFEUILLE</Text>
@@ -316,9 +380,9 @@ export default function FinanceScreen() {
 const styles = StyleSheet.create({
   mainWrapper: { flex: 1, backgroundColor: '#f8fafc' },
   container: { flex: 1, paddingHorizontal: 20 },
-  scrollContent: { paddingBottom: 60 },
+  scrollContent: { paddingBottom: 110 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { marginTop: 60, marginBottom: 20 },
+  header: { marginTop: Platform.OS === 'android' ? 50 : 60, marginBottom: 20 },
   headerTitle: { fontSize: 26, fontWeight: 'bold', color: '#1e293b' },
   headerSub: { fontSize: 14, color: '#64748b', marginTop: 4 },
   rechargeCard: { backgroundColor: '#1e3a8a', borderRadius: 24, padding: 25, elevation: 8, alignItems: 'center' },
@@ -329,32 +393,33 @@ const styles = StyleSheet.create({
   rechargeBtnText: { color: '#1e3a8a', fontWeight: 'bold' },
   statsRowMini: { flexDirection: 'row', gap: 12, marginTop: 15 },
   miniStatCard: { flex: 1, backgroundColor: '#fff', padding: 15, borderRadius: 18, elevation: 1 },
-  miniStatLabel: { fontSize: 10, color: '#94a3b8', fontWeight: 'bold' },
-  miniStatValue: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginTop: 2 },
+  miniStatLabel: { fontSize: 9, color: '#94a3b8', fontWeight: 'bold' },
+  miniStatValue: { fontSize: 15, fontWeight: 'bold', color: '#1e293b', marginTop: 2 },
   tabContainer: { flexDirection: 'row', marginTop: 25, backgroundColor: '#f1f5f9', borderRadius: 12, padding: 4 },
   tab: { flex: 1, paddingVertical: 10, alignItems: 'center', borderRadius: 10 },
   activeTab: { backgroundColor: '#fff', elevation: 2 },
   tabText: { fontSize: 13, fontWeight: 'bold', color: '#64748b' },
   activeTabText: { color: '#1e3a8a' },
   section: { marginTop: 15 },
+  historyLimitText: { fontSize: 10, color: '#94a3b8', marginBottom: 10, textAlign: 'center', fontStyle: 'italic' },
   historyItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 18, marginBottom: 10, elevation: 1 },
   historyIcon: { width: 40, height: 40, borderRadius: 12, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
-  historyDest: { fontSize: 14, fontWeight: '700', color: '#334155' },
-  historyDate: { fontSize: 11, color: '#94a3b8' },
-  historyPrice: { fontSize: 15, fontWeight: 'bold' },
-  historyCom: { fontSize: 11, color: '#ef4444' },
-  statusBadge: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
-  statusText: { color: '#fff', fontSize: 9, fontWeight: 'bold' },
+  historyDest: { fontSize: 13, fontWeight: '700', color: '#334155' },
+  historyDate: { fontSize: 10, color: '#94a3b8' },
+  historyPrice: { fontSize: 14, fontWeight: 'bold' },
+  historyCom: { fontSize: 10, color: '#ef4444' },
+  statusBadgeStyle: { paddingHorizontal: 8, paddingVertical: 4, borderRadius: 6 },
+  statusText: { color: '#fff', fontSize: 8, fontWeight: 'bold' },
   emptyBox: { padding: 40, alignItems: 'center' },
-  emptyText: { color: '#94a3b8', fontSize: 13 },
+  emptyText: { color: '#94a3b8', fontSize: 12 },
   modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'center', padding: 20 },
   modalContent: { backgroundColor: '#fff', borderRadius: 30, padding: 25 },
   modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 },
   modalTitle: { fontSize: 20, fontWeight: 'bold' },
-  modalStep: { fontSize: 14, fontWeight: 'bold', color: '#1e3a8a', marginBottom: 10 },
+  modalStep: { fontSize: 13, fontWeight: 'bold', color: '#1e3a8a', marginBottom: 10 },
   numContainer: { backgroundColor: '#f8fafc', borderRadius: 15, padding: 15, marginBottom: 20 },
   numRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: '#f1f5f9' },
-  numText: { fontSize: 15 },
+  numText: { fontSize: 14 },
   input: { backgroundColor: '#f1f5f9', padding: 18, borderRadius: 15, fontSize: 22, fontWeight: 'bold', textAlign: 'center', marginBottom: 25 },
   confirmBtn: { backgroundColor: '#1e3a8a', padding: 18, borderRadius: 15, alignItems: 'center' },
   confirmBtnText: { color: '#fff', fontWeight: 'bold' }

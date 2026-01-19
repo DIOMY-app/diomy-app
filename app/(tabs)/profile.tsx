@@ -1,37 +1,61 @@
 import React, { useEffect, useState } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, 
-  Image, ScrollView, RefreshControl, Dimensions, Linking, Platform 
+  Image, ScrollView, RefreshControl, Dimensions, Linking, Platform, Modal, TextInput 
 } from 'react-native';
-import { supabase } from '../../lib/supabase';
+import { supabase } from '../../lib/supabase'; 
 import { useRouter } from 'expo-router';
-import { Ionicons, MaterialCommunityIcons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
+import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import * as ImagePicker from 'expo-image-picker';
 
-const { height } = Dimensions.get('window');
+const { width } = Dimensions.get('window');
 
 export default function ProfileScreen() {
   const insets = useSafeAreaInsets();
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [profile, setProfile] = useState<any>(null);
+  const [soldeInfo, setSoldeInfo] = useState<any>(null);
+  const [isDriver, setIsDriver] = useState(false);
   const [history, setHistory] = useState<any[]>([]);
+  const [favorites, setFavorites] = useState<any[]>([]); 
+  
+  const [showFavModal, setShowFavModal] = useState(false);
+  const [selectedFavType, setSelectedFavType] = useState<'home' | 'work' | null>(null);
+  const [tempAddress, setTempAddress] = useState('');
+  const [isSavingFav, setIsSavingFav] = useState(false);
+
   const router = useRouter();
 
   useEffect(() => {
     fetchData();
-  }, []);
+    // ✅ SYNC SÉCURISÉE : On n'écoute que les changements de mon propre profil
+    const channel = supabase
+      .channel('profile-sync')
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'profiles'
+      }, (payload) => {
+        // Uniquement si c'est mon profil et que je ne suis pas en train de charger
+        if (payload.new.id === profile?.id && !loading) {
+          fetchData();
+        }
+      })
+      .subscribe();
+
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id]); // ✅ Dépendance ajoutée
 
   async function fetchData() {
     try {
-      setLoading(true);
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { setLoading(false); return; }
+      if (!user) return;
 
       const { data: prof, error } = await supabase
         .from('profiles')
-        .select(`*`)
+        .select('*')
         .eq('id', user.id)
         .maybeSingle();
 
@@ -39,178 +63,247 @@ export default function ProfileScreen() {
 
       if (prof) {
         setProfile({ ...prof, email: user.email });
-        const { data: rides } = await supabase
-          .from('rides_request')
-          .select('*')
-          .or(`passenger_id.eq.${user.id},driver_id.eq.${user.id}`)
-          .order('created_at', { ascending: false })
-          .limit(5);
-        setHistory(rides || []);
+        const roleClean = prof.role?.toLowerCase().trim();
+        const driverCheck = ['chauffeur', 'conducteur', 'conducteurs'].includes(roleClean);
+        setIsDriver(driverCheck);
+        
+        if (driverCheck) {
+          const { data: solde } = await supabase
+            .from('chauffeur_solde_net')
+            .select('solde_disponible')
+            .eq('driver_id', user.id)
+            .maybeSingle();
+          if (solde) setSoldeInfo(solde);
+        } else {
+          const { data: rides } = await supabase
+            .from('rides_request')
+            .select('*')
+            .eq('passenger_id', user.id)
+            .eq('status', 'completed')
+            .order('sent_at', { ascending: false })
+            .limit(20);
+          setHistory(rides || []);
+
+          const { data: favs } = await supabase
+            .from('user_favorites')
+            .select('*')
+            .eq('user_id', user.id);
+          setFavorites(favs || []);
+        }
       }
-    } catch (error: any) {
-      console.log("Erreur Profile:", error.message);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+    } catch (e) { 
+      console.log("Erreur fetchData:", e); 
+    } finally { 
+      setLoading(false); 
+      setRefreshing(false); 
     }
   }
 
-  const onRefresh = () => { setRefreshing(true); fetchData(); };
+  const handleFavPress = (type: 'home' | 'work') => {
+    const fav = favorites.find(f => f.label === type);
+    if (fav && fav.latitude !== 0) {
+      router.push({
+        pathname: "/map" as any, 
+        params: { address: fav.address_name, lat: fav.latitude, lon: fav.longitude }
+      });
+    } else {
+      Alert.alert(
+        "Localisation GPS",
+        `Voulez-vous définir l'emplacement de votre ${type === 'home' ? 'Domicile' : 'Travail'} sur la carte ?`,
+        [
+          { text: "Plus tard", style: "cancel" },
+          { 
+            text: "Ouvrir la Carte", 
+            onPress: () => router.push({
+                pathname: "/map" as any,
+                params: { mode: 'SET_FAVORITE', favType: type }
+            }) 
+          }
+        ]
+      );
+    }
+  };
+
+  const saveFavorite = async () => {
+    if (!tempAddress.trim() || !selectedFavType) return;
+    setIsSavingFav(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { error } = await supabase.from('user_favorites').upsert({
+          user_id: user.id, label: selectedFavType, address_name: tempAddress, latitude: 0, longitude: 0
+        }, { onConflict: 'user_id, label' });
+      if (error) throw error;
+      Alert.alert("Succès", "Destination enregistrée !");
+      setShowFavModal(false); setTempAddress(''); fetchData(); 
+    } catch (err) { Alert.alert("Erreur", "Impossible d'enregistrer."); } finally { setIsSavingFav(false); }
+  };
+
+  const handleUpdateAvatar = async () => {
+    Alert.alert("Photo de profil", "Choisissez une option", [
+      { text: "Prendre une photo", onPress: () => openPicker(true) },
+      { text: "Choisir dans la galerie", onPress: () => openPicker(false) },
+      { text: "Annuler", style: "cancel" }
+    ]);
+  };
+
+  const openPicker = async (useCamera: boolean) => {
+    const permission = useCamera 
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (permission.status !== 'granted') { Alert.alert("Erreur", "Permission refusée"); return; }
+    const result = useCamera 
+      ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.5 })
+      : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.5 });
+    if (result && !result.canceled) {
+      setLoading(true);
+      try {
+        const photo = result.assets[0];
+        const ext = photo.uri.split('.').pop();
+        const fileName = `${profile.id}-${Date.now()}.${ext}`;
+        const formData = new FormData();
+        formData.append('file', { uri: photo.uri, name: fileName, type: `image/${ext}` } as any);
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, formData as any);
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+          await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id);
+          setProfile({ ...profile, avatar_url: publicUrl });
+          Alert.alert("Succès", "Photo mise à jour");
+        }
+      } catch (err) { console.error(err); } finally { setLoading(false); }
+    }
+  };
+
+  const formatDate = (dateValue: any) => {
+    if (!dateValue) return "";
+    const date = new Date(dateValue);
+    const j = String(date.getDate()).padStart(2, '0');
+    const m = String(date.getMonth() + 1).padStart(2, '0');
+    const h = String(date.getHours()).padStart(2, '0');
+    const min = String(date.getMinutes()).padStart(2, '0');
+    return `${j}/${m} à ${h}:${min}`;
+  };
 
   async function handleSignOut() {
     await supabase.auth.signOut();
-    router.replace("/"); 
+    if (Platform.OS === 'web') { window.location.href = "/"; } 
+    else { router.replace("/(auth)/login" as any); }
   }
 
-  // --- LOGIQUE DE STATUT ---
-  const roleClean = profile?.role?.toLowerCase().trim();
-  const isDriver = roleClean === 'chauffeur' || roleClean === 'conducteur' || roleClean === 'conducteurs';
-  const isPending = profile?.status === 'en_attente_validation';
-  const isRejected = profile?.status === 'rejete';
-  const isValidated = profile?.status === 'valide';
-
-  const renderStars = (score: number) => {
-    const starCount = Math.round((score || 100) / 20); 
-    const stars = [];
-    for (let i = 1; i <= 5; i++) {
-      stars.push(
-        <Ionicons key={i} name={i <= starCount ? "star" : "star-outline"} size={16} color={i <= starCount ? "#eab308" : "#cbd5e1"} style={{ marginRight: 2 }} />
-      );
-    }
-    return (
-      <View style={styles.starsRow}>
-        {stars}
-        <Text style={styles.scoreText}>({score || 100}/100)</Text>
-      </View>
-    );
-  };
-
-  if (loading && !refreshing) {
-    return (
-      <View style={styles.centered}><ActivityIndicator size="large" color="#1e3a8a" /></View>
-    );
-  }
+  if (loading && !refreshing) return <View style={styles.centered}><ActivityIndicator size="large" color="#1e3a8a" /></View>;
 
   return (
     <View style={[styles.mainWrapper, { paddingTop: insets.top }]}>
       <ScrollView 
         style={styles.container} 
-        showsVerticalScrollIndicator={false}
-        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={onRefresh} />}
-        contentContainerStyle={[styles.scrollContent, { paddingBottom: insets.bottom + 80 }]}
+        refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); fetchData();}} />}
       >
-        {/* HEADER */}
         <View style={styles.header}>
-          <View style={styles.avatarContainer}>
-            {profile?.avatar_url ? (
-              <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} />
-            ) : (
-              <View style={styles.avatarPlaceholder}><Ionicons name="person" size={50} color="#1e3a8a" /></View>
-            )}
-          </View>
-          <Text style={styles.username}>{profile?.full_name || 'Utilisateur'}</Text>
+          <TouchableOpacity onPress={handleUpdateAvatar} style={styles.avatarContainer}>
+            {profile?.avatar_url ? <Image source={{ uri: profile.avatar_url }} style={styles.avatarImage} /> : <Ionicons name="camera" size={40} color="#1e3a8a" />}
+          </TouchableOpacity>
+          <Text style={styles.username}>{profile?.full_name || 'Utilisateur DIOMY'}</Text>
           
-          {/* BADGE DE RÔLE DYNAMIQUE */}
-          <View style={[
-            styles.roleBadge, 
-            { backgroundColor: isPending ? '#f59e0b' : (isDriver && isValidated ? '#1e3a8a' : '#22c55e') }
-          ]}>
-            <Text style={styles.roleBadgeText}>
-              {isPending ? 'VÉRIFICATION EN COURS' : (isDriver ? 'CONDUCTEUR DIOMY' : 'PASSAGER')}
-            </Text>
+          <View style={styles.badgeContainer}>
+            <View style={styles.roleBadge}>
+              <Text style={styles.roleText}>{isDriver ? "CHAUFFEUR DIOMY" : "PASSAGER DIOMY"}</Text>
+            </View>
+            <View style={styles.scoreBadge}>
+              <Ionicons name="star" size={12} color="#eab308" />
+              <Text style={styles.scoreText}>{profile?.score || 100}</Text>
+            </View>
           </View>
         </View>
 
-        {/* STATS */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statItem}>
-            <Text style={styles.statVal}>{history.length}</Text>
-            <Text style={styles.statLab}>Courses</Text>
-          </View>
-          <View style={styles.statDivider} />
-          <View style={styles.statItem}>
-            {renderStars(profile?.score)}
-            <Text style={styles.statLab}>Fiabilité</Text>
-          </View>
-        </View>
-
-        {/* --- SECTION ÉTAT DU DOSSIER CONDUCTEUR --- */}
-        
-        {/* 1. Dossier en attente */}
-        {isPending && (
-          <View style={styles.pendingCard}>
-            <View style={styles.pendingIcon}>
-              <Ionicons name="time" size={24} color="#f59e0b" />
-            </View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.pendingTitle}>Dossier en cours de revue</Text>
-              <Text style={styles.pendingSub}>Nos équipes vérifient vos documents. Cela prend généralement moins de 24h.</Text>
+        {isDriver && soldeInfo && (
+          <View style={styles.financeContainer}>
+            <Text style={styles.sectionTitle}>Ma Trésorerie</Text>
+            <View style={styles.financeCard}>
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>Solde Disponible</Text>
+                <Text style={styles.statValue}>{soldeInfo.solde_disponible || 0} F</Text>
+              </View>
+              <View style={styles.statDivider} />
+              <View style={styles.statBox}>
+                <Text style={styles.statLabel}>Statut Compte</Text>
+                <Text style={[styles.statValue, {color: soldeInfo.solde_disponible > 500 ? '#22c55e' : '#ef4444'}]}>
+                  {soldeInfo.solde_disponible > 500 ? 'ACTIF' : 'BAS'}
+                </Text>
+              </View>
             </View>
           </View>
         )}
 
-        {/* 2. Dossier Rejeté */}
-        {isRejected && (
-          <TouchableOpacity style={styles.rejectedCard} onPress={() => router.push('/become-driver' as any)}>
-            <Ionicons name="alert-circle" size={24} color="#ef4444" />
-            <View style={{ flex: 1, marginLeft: 10 }}>
-              <Text style={styles.rejectedTitle}>Dossier refusé</Text>
-              <Text style={styles.rejectedSub}>Cliquez ici pour corriger vos documents et renvoyer votre demande.</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="#ef4444" />
-          </TouchableOpacity>
-        )}
-
-        {/* 3. Proposer de devenir conducteur (Uniquement si passager pur et sans dossier en cours) */}
-        {!isDriver && !isPending && !isRejected && (
-          <TouchableOpacity style={styles.driverPromoCard} onPress={() => router.push('/become-driver' as any)}>
-            <View style={styles.driverPromoIcon}><MaterialCommunityIcons name="motorbike" size={28} color="white" /></View>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.driverPromoTitle}>Gagnez de l'argent avec DIOMY</Text>
-              <Text style={styles.driverPromoSub}>Devenez conducteur dès aujourd'hui</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color="white" />
-          </TouchableOpacity>
-        )}
-
-        {/* SUPPORT */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Support & Sécurité</Text>
-          <View style={styles.supportCard}>
-            <TouchableOpacity style={styles.supportItem} onPress={() => Linking.openURL('whatsapp://send?phone=2250102030405')}>
-              <View style={[styles.supportIcon, { backgroundColor: '#dcfce7' }]}><Ionicons name="logo-whatsapp" size={20} color="#22c55e" /></View>
-              <Text style={styles.supportText}>Contacter l'assistance</Text>
-              <Ionicons name="chevron-forward" size={18} color="#cbd5e1" />
+        {!isDriver && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Mes Favoris</Text>
+            <TouchableOpacity style={styles.favRow} onPress={() => handleFavPress('home')}>
+              <Ionicons name="home" size={20} color="#1e3a8a" />
+              <Text style={styles.infoText}>{favorites.find(f => f.label === 'home')?.address_name || 'Ajouter mon domicile'}</Text>
+              <TouchableOpacity onPress={() => { setSelectedFavType('home'); setShowFavModal(true); }}>
+                <Ionicons name={favorites.find(f => f.label === 'home') ? "pencil" : "add-circle"} size={20} color="#cbd5e1" />
+              </TouchableOpacity>
+            </TouchableOpacity>
+            
+            <TouchableOpacity style={styles.favRow} onPress={() => handleFavPress('work')}>
+              <Ionicons name="briefcase" size={20} color="#1e3a8a" />
+              <Text style={styles.infoText}>{favorites.find(f => f.label === 'work')?.address_name || 'Ajouter mon lieu de travail'}</Text>
+              <TouchableOpacity onPress={() => { setSelectedFavType('work'); setShowFavModal(true); }}>
+                <Ionicons name={favorites.find(f => f.label === 'work') ? "pencil" : "add-circle"} size={20} color="#cbd5e1" />
+              </TouchableOpacity>
             </TouchableOpacity>
           </View>
+        )}
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Mon Compte</Text>
+          <View style={styles.infoRow}>
+            <Ionicons name="call-outline" size={20} color="#64748b" />
+            <Text style={styles.infoText}>{profile?.phone_number || 'Aucun numéro'}</Text>
+          </View>
         </View>
 
-        {/* HISTORIQUE RAPIDE */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Derniers trajets</Text>
-          {history.length === 0 ? (
-            <Text style={styles.emptyText}>Aucun trajet enregistré</Text>
-          ) : (
-            history.map((item) => (
-              <View key={item.id} style={styles.historyCard}>
-                <Ionicons name="bicycle" size={20} color="#1e3a8a" style={{marginRight:12}} />
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.historyDest} numberOfLines={1}>{item.destination_name || 'Trajet DIOMY'}</Text>
-                  <Text style={styles.historyDate}>{new Date(item.created_at).toLocaleDateString('fr-FR')}</Text>
+        {!isDriver && (
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Dernières courses</Text>
+            {history.length === 0 ? (
+              <View style={styles.emptyBox}><Text style={styles.emptyText}>Aucun trajet terminé.</Text></View>
+            ) : (
+              history.map((item) => (
+                <View key={item.id} style={styles.historyItem}>
+                  <View style={styles.historyIcon}><FontAwesome5 name="map-marker-alt" size={16} color="#1e3a8a" /></View>
+                  <View style={{ flex: 1, marginLeft: 12 }}>
+                    <Text style={styles.historyDest} numberOfLines={1}>{item.destination_name || "Course"}</Text>
+                    <Text style={styles.historyDate}>{formatDate(item.sent_at || item.created_at)}</Text>
+                  </View>
+                  <Text style={styles.historyPrice}>{item.price?.toLocaleString()} F</Text>
                 </View>
-                <Text style={styles.historyPrice}>{item.price} F</Text>
-              </View>
-            ))
-          )}
-        </View>
+              ))
+            )}
+          </View>
+        )}
 
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
-          <Ionicons name="log-out-outline" size={22} color="white" />
-          <Text style={styles.signOutText}>Se déconnecter</Text>
+          <Text style={styles.signOutText}>Déconnexion</Text>
         </TouchableOpacity>
-        
-        <Text style={styles.versionText}>DIOMY App v1.0.5</Text>
       </ScrollView>
+
+      <Modal visible={showFavModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Modifier {selectedFavType === 'home' ? 'mon Domicile' : 'mon Travail'}</Text>
+            <TextInput style={styles.input} placeholder="Ex: Quartier Commerce, Face à la BICICI" value={tempAddress} onChangeText={setTempAddress} />
+            <View style={styles.modalBtns}>
+              <TouchableOpacity style={styles.cancelBtn} onPress={() => { setShowFavModal(false); setTempAddress(''); }}>
+                <Text style={styles.cancelText}>Annuler</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.saveBtn} onPress={saveFavorite}>
+                {isSavingFav ? <ActivityIndicator color="#fff" /> : <Text style={styles.saveText}>Enregistrer</Text>}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -218,50 +311,45 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   mainWrapper: { flex: 1, backgroundColor: '#f8fafc' },
   container: { flex: 1, paddingHorizontal: 20 },
-  scrollContent: { paddingTop: 20 },
   centered: { flex: 1, justifyContent: 'center', alignItems: 'center' },
-  header: { alignItems: 'center', marginBottom: 20 },
-  avatarContainer: { position: 'relative' },
-  avatarImage: { width: 90, height: 90, borderRadius: 45, borderWidth: 3, borderColor: '#fff' },
-  avatarPlaceholder: { width: 90, height: 90, borderRadius: 45, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center' },
-  username: { fontSize: 20, fontWeight: 'bold', color: '#1e293b', marginTop: 10 },
-  roleBadge: { paddingHorizontal: 12, paddingVertical: 5, borderRadius: 20, marginTop: 5 },
-  roleBadgeText: { color: 'white', fontSize: 10, fontWeight: 'bold' },
-  statsContainer: { flexDirection: 'row', backgroundColor: '#fff', borderRadius: 20, padding: 15, marginBottom: 25, elevation: 2 },
-  statItem: { flex: 1, alignItems: 'center' },
-  statVal: { fontSize: 18, fontWeight: 'bold', color: '#1e3a8a' },
-  statLab: { fontSize: 11, color: '#64748b' },
-  statDivider: { width: 1, height: '70%', backgroundColor: '#f1f5f9' },
-  starsRow: { flexDirection: 'row', alignItems: 'center' },
-  scoreText: { fontSize: 10, color: '#94a3b8', marginLeft: 4 },
+  header: { alignItems: 'center', marginVertical: 20 },
+  avatarContainer: { width: 100, height: 100, borderRadius: 50, backgroundColor: '#eff6ff', justifyContent: 'center', alignItems: 'center', overflow: 'hidden', borderWidth: 3, borderColor: '#fff', elevation: 5 },
+  avatarImage: { width: '100%', height: '100%' },
+  username: { fontSize: 22, fontWeight: 'bold', color: '#1e293b', marginTop: 10 },
   
-  // Nouveaux Styles de cartes d'état
-  pendingCard: { backgroundColor: '#fffbeb', borderRadius: 20, padding: 15, flexDirection: 'row', alignItems: 'center', marginBottom: 25, borderWidth: 1, borderColor: '#fef3c7' },
-  pendingIcon: { width: 40, height: 40, backgroundColor: '#fef3c7', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  pendingTitle: { color: '#92400e', fontWeight: 'bold', fontSize: 14 },
-  pendingSub: { color: '#b45309', fontSize: 11, marginTop: 2 },
+  badgeContainer: { flexDirection: 'row', alignItems: 'center', marginTop: 8, gap: 8 },
+  roleBadge: { backgroundColor: '#1e3a8a', paddingHorizontal: 12, paddingVertical: 4, borderRadius: 12 },
+  roleText: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  scoreBadge: { backgroundColor: '#fff', flexDirection: 'row', alignItems: 'center', paddingHorizontal: 10, paddingVertical: 4, borderRadius: 12, borderWidth: 1, borderColor: '#e2e8f0', elevation: 1 },
+  scoreText: { color: '#1e293b', fontSize: 11, fontWeight: 'bold', marginLeft: 4 },
 
-  rejectedCard: { backgroundColor: '#fef2f2', borderRadius: 20, padding: 15, flexDirection: 'row', alignItems: 'center', marginBottom: 25, borderWidth: 1, borderColor: '#fee2e2' },
-  rejectedTitle: { color: '#b91c1c', fontWeight: 'bold', fontSize: 14 },
-  rejectedSub: { color: '#ef4444', fontSize: 11 },
-
-  driverPromoCard: { backgroundColor: '#009199', borderRadius: 20, padding: 18, flexDirection: 'row', alignItems: 'center', marginBottom: 25, elevation: 3 },
-  driverPromoIcon: { width: 44, height: 44, backgroundColor: 'rgba(255,255,255,0.2)', borderRadius: 12, justifyContent: 'center', alignItems: 'center', marginRight: 12 },
-  driverPromoTitle: { color: 'white', fontWeight: 'bold', fontSize: 14 },
-  driverPromoSub: { color: 'rgba(255,255,255,0.8)', fontSize: 11, marginTop: 2 },
-
-  section: { marginBottom: 25 },
-  sectionTitle: { fontSize: 16, fontWeight: 'bold', color: '#1e293b', marginBottom: 12 },
-  supportCard: { backgroundColor: '#fff', borderRadius: 20, padding: 5, elevation: 1 },
-  supportItem: { flexDirection: 'row', alignItems: 'center', padding: 15 },
-  supportIcon: { width: 36, height: 36, borderRadius: 10, justifyContent: 'center', alignItems: 'center', marginRight: 15 },
-  supportText: { flex: 1, fontSize: 14, color: '#334155', fontWeight: '500' },
-  historyCard: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 15, marginBottom: 8, elevation: 1 },
-  historyDest: { fontSize: 13, fontWeight: '600', color: '#334155' },
-  historyDate: { fontSize: 11, color: '#94a3b8' },
-  historyPrice: { fontWeight: 'bold', color: '#22c55e', fontSize: 13 },
-  emptyText: { color: '#94a3b8', textAlign: 'center', fontSize: 12, marginVertical: 10 },
-  signOutBtn: { backgroundColor: '#ef4444', flexDirection: 'row', height: 55, borderRadius: 18, justifyContent: 'center', alignItems: 'center', gap: 10, marginTop: 10 },
-  signOutText: { color: 'white', fontWeight: 'bold' },
-  versionText: { textAlign: 'center', color: '#cbd5e1', fontSize: 10, marginTop: 20 }
+  section: { marginBottom: 20 },
+  sectionTitle: { fontSize: 14, fontWeight: 'bold', color: '#64748b', marginBottom: 12, textTransform: 'uppercase' },
+  infoRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 15, marginBottom: 8, elevation: 1 },
+  favRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 15, marginBottom: 8, borderStyle: 'dashed', borderWidth: 1, borderColor: '#cbd5e1' },
+  infoText: { flex: 1, marginLeft: 12, color: '#334155', fontSize: 14 },
+  financeContainer: { marginBottom: 25 },
+  financeCard: { backgroundColor: '#fff', borderRadius: 20, padding: 20, flexDirection: 'row', elevation: 4 },
+  statBox: { flex: 1, alignItems: 'center' },
+  statDivider: { width: 1, height: '100%', backgroundColor: '#f1f5f9' },
+  statLabel: { fontSize: 11, color: '#94a3b8', marginBottom: 5 },
+  statValue: { fontSize: 18, fontWeight: 'bold', color: '#1e293b' },
+  historyItem: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 12, borderRadius: 15, marginBottom: 8, elevation: 1 },
+  historyIcon: { width: 36, height: 36, borderRadius: 10, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center' },
+  historyDest: { fontSize: 13, fontWeight: '700', color: '#334155' },
+  historyDate: { fontSize: 10, color: '#94a3b8' },
+  historyPrice: { fontSize: 14, fontWeight: 'bold', color: '#1e3a8a' },
+  emptyBox: { padding: 10, alignItems: 'center' },
+  emptyText: { color: '#94a3b8', fontSize: 12 },
+  signOutBtn: { backgroundColor: '#fee2e2', padding: 18, borderRadius: 15, alignItems: 'center', marginTop: 10, marginBottom: 40 },
+  signOutText: { color: '#ef4444', fontWeight: 'bold' },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { backgroundColor: '#fff', padding: 25, borderRadius: 25, width: width * 0.85 },
+  modalTitle: { fontSize: 18, fontWeight: 'bold', color: '#1e293b', marginBottom: 20 },
+  input: { backgroundColor: '#f1f5f9', padding: 15, borderRadius: 12, marginBottom: 20, fontSize: 16 },
+  modalBtns: { flexDirection: 'row', gap: 10 },
+  cancelBtn: { flex: 1, padding: 15, alignItems: 'center' },
+  saveBtn: { flex: 1, backgroundColor: '#1e3a8a', padding: 15, borderRadius: 12, alignItems: 'center' },
+  cancelText: { color: '#64748b', fontWeight: 'bold' },
+  saveText: { color: '#fff', fontWeight: 'bold' }
 });

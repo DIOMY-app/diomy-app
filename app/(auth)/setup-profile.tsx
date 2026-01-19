@@ -7,17 +7,16 @@ export default function SetupProfile() {
   const router = useRouter();
   const [loading, setLoading] = useState(false);
 
-  // Cette fonction ne demande plus de session Supabase ici
-  // Elle mémorise le choix et envoie vers la page de connexion
+  // ✅ CORRECTION DU CHEMIN : Suppression des parenthèses sur 'auth'
   const selectRoleAndProceed = (role: 'passager' | 'chauffeur') => {
     setLoading(true);
     
     // On simule un petit temps de préparation pour l'UI
     setTimeout(() => {
       setLoading(false);
-      // On redirige vers le login en passant le rôle comme paramètre
+      // ✅ Redirection vers /auth/login (sans les parenthèses)
       router.push({
-        pathname: '/(auth)/login' as any,
+        pathname: '/auth/login' as any,
         params: { role: role }
       });
     }, 500);
@@ -74,7 +73,7 @@ export default function SetupProfile() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#f9fafb' },
-  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center' },
+  loadingContainer: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
   loadingText: { marginTop: 15, fontSize: 16, color: '#1e3a8a' },
   content: { flex: 1, padding: 20, justifyContent: 'center' },
   title: { fontSize: 28, fontWeight: '900', color: '#1e3a8a', textAlign: 'center', letterSpacing: 1 },
