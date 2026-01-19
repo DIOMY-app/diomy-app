@@ -8,18 +8,16 @@ export default function RootLayout() {
   const segments = useSegments();
 
   useEffect(() => {
-    // ✅ Écouteur des changements de session (Login/Logout)
     const { data: { subscription } } = supabase.auth.onAuthStateChange(
       async (event, session) => {
         console.log('🔐 Événement Auth détecté:', event);
         
-        // On transforme les segments en texte pour faciliter la recherche
         const currentPath = segments.join('/');
         
-        // 1. Redirection après Connexion réussie
+        // 1. Redirection après Connexion
         if (event === 'SIGNED_IN' && session) {
-          // On vérifie si le chemin actuel contient 'login' ou 'setup-profile'
-          const isAtStartPages = currentPath.includes('login') || currentPath.includes('setup-profile');
+          // On ajoute la vérification du segment vide "" qui arrive parfois à l'initialisation
+          const isAtStartPages = currentPath.includes('login') || currentPath.includes('setup-profile') || currentPath === "";
           
           if (isAtStartPages) {
             // @ts-ignore
@@ -27,11 +25,16 @@ export default function RootLayout() {
           }
         }
         
-        // 2. Redirection après Déconnexion
+        // 2. Redirection après Déconnexion (CORRECTION ICI)
         if (event === 'SIGNED_OUT') {
-          // @ts-ignore
-          // On renvoie vers la racine simplifiée
-          router.replace('/setup-profile');
+          console.log("👋 Déconnexion : Nettoyage et redirection");
+          
+          // On utilise un petit délai de 0ms (setTimeout) pour laisser Supabase 
+          // finir de vider le cache local avant de changer de page
+          setTimeout(() => {
+            // @ts-ignore
+            router.replace('/setup-profile');
+          }, 0);
         }
       }
     );
@@ -39,7 +42,7 @@ export default function RootLayout() {
     return () => {
       subscription.unsubscribe();
     };
-  }, [segments]); // Surveille les segments pour savoir quand agir
+  }, [segments]); 
   
   return <Slot />;
 }
