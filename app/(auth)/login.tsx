@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { 
   StyleSheet, View, Text, TextInput, TouchableOpacity, 
   ActivityIndicator, Alert, Platform, SafeAreaView, 
@@ -17,6 +17,7 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
+  // On sécurise le rôle (par défaut passagers si non spécifié)
   const selectedRole = initialRole === 'chauffeur' ? 'conducteurs' : 'passagers';
   const displayRole = selectedRole === 'conducteurs' ? 'Conducteur Moto' : 'Passager';
 
@@ -50,9 +51,9 @@ export default function AuthScreen() {
         if (signUpError) throw signUpError;
 
         if (data.user) {
+          // Création du profil public
           const { error: profileError } = await supabase.from('profiles').upsert({ 
             id: data.user.id, 
-            user_id: data.user.id, 
             full_name: fullName, 
             role: selectedRole, 
             phone_number: phone, 
@@ -60,6 +61,7 @@ export default function AuthScreen() {
           });
           if (profileError) throw profileError;
 
+          // Insertion dans la table spécifique au rôle
           const { error: dbError } = await supabase.from(selectedRole).upsert({ 
             id: data.user.id, 
             full_name: fullName, 
@@ -75,7 +77,8 @@ export default function AuthScreen() {
         if (signInError) throw signInError;
       }
 
-      router.replace("/(tabs)/map" as any); 
+      // ✅ Note : on ne fait pas de redirection forcée ici. 
+      // Le _layout.tsx racine va détecter la nouvelle session et envoyer vers la Map automatiquement.
 
     } catch (error: any) {
       Alert.alert('Erreur', "Vérifiez vos identifiants ou votre connexion.");
@@ -99,7 +102,6 @@ export default function AuthScreen() {
             <Text style={styles.title}>{isRegistering ? 'Inscription' : 'Connexion'}</Text>
             <Text style={styles.subtitle}>En tant que <Text style={styles.roleBold}>{displayRole}</Text></Text>
 
-            {/* SECTION DYNAMIQUE : CHAMPS DE SAISIE */}
             <View style={styles.form}>
               {isRegistering && (
                 <View style={styles.inputContainer}>
@@ -117,7 +119,7 @@ export default function AuthScreen() {
                 <Ionicons name="call-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
                 <TextInput 
                   style={styles.input} 
-                  placeholder="Numéro de téléphone (10 chiffres)" 
+                  placeholder="Numéro de téléphone" 
                   value={phone} 
                   keyboardType="phone-pad" 
                   maxLength={10} 

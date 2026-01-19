@@ -14,15 +14,19 @@ export default function SetupProfile() {
     setLoading(true);
     
     try {
-      // Sauvegarder le rôle dans AsyncStorage
+      // 1. Sauvegarder le rôle choisi
       await AsyncStorage.setItem('user_role', role);
       
-      // Petit délai pour l'UX
+      // 2. Petit délai pour l'UX
       await new Promise(resolve => setTimeout(resolve, 300));
       
-      // Navigation vers login (chemin complet pour éviter les erreurs d'aiguillage)
-      // @ts-ignore
-      router.replace('/(auth)/login');
+      // 3. NAVIGATION CORRIGÉE
+      // On utilise '/auth/login' (sans parenthèses) comme demandé par TypeScript
+      // mais on force le typage pour éviter tout conflit interne.
+      router.replace({
+        pathname: '/auth/login' as any,
+        params: { role: role }
+      });
       
     } catch (error) {
       console.error('🔴 Error during role selection:', error);
@@ -46,6 +50,7 @@ export default function SetupProfile() {
         <Text style={styles.subtitle}>Sélectionnez comment vous souhaitez utiliser l'application à Korhogo</Text>
 
         <View style={styles.cardsContainer}>
+          {/* CARTE PASSAGER */}
           <TouchableOpacity 
             style={[styles.card, { borderLeftColor: '#1e3a8a', borderLeftWidth: 8 }]} 
             onPress={() => selectRoleAndProceed('passager')}
@@ -61,6 +66,7 @@ export default function SetupProfile() {
             </View>
           </TouchableOpacity>
 
+          {/* CARTE CHAUFFEUR */}
           <TouchableOpacity 
             style={[styles.card, { borderLeftColor: '#f59e0b', borderLeftWidth: 8 }]} 
             onPress={() => selectRoleAndProceed('chauffeur')}

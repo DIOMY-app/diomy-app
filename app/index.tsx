@@ -1,14 +1,24 @@
-import { View, Text, ActivityIndicator } from 'react-native';
+import { useEffect } from 'react';
+import { supabase } from '@/lib/supabase';
+import { useRouter } from 'expo-router';
 
 export default function Index() {
-  // On ne fait AUCUNE redirection ici. 
-  // On laisse le _layout.tsx décider d'où envoyer l'utilisateur.
-  // Ce fichier sert uniquement d'écran de démarrage technique.
+  const router = useRouter();
 
-  return (
-    <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' }}>
-      <ActivityIndicator size="large" color="#1e3a8a" />
-      <Text style={{ marginTop: 10 }}>Initialisation de DIOMY...</Text>
-    </View>
-  );
+  useEffect(() => {
+    async function checkInitialRoute() {
+      const { data: { session } } = await supabase.auth.getSession();
+      
+      if (session) {
+        // @ts-ignore
+        router.replace('/(tabs)/map');
+      } else {
+        // @ts-ignore
+        router.replace('/(auth)/setup-profile');
+      }
+    }
+    checkInitialRoute();
+  }, []);
+
+  return null; // On ne rend rien pour ne pas interférer visuellement
 }
