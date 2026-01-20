@@ -23,7 +23,7 @@ export default function FinanceScreen() {
   const [rechargesHistory, setRechargesHistory] = useState<any[]>([]);
   const [soldeRecharge, setSoldeRecharge] = useState(0); 
   const [activeTab, setActiveTab] = useState<'courses' | 'depots'>('courses');
-  const [driverStatus, setDriverStatus] = useState<string>('pending'); // ✅ Nouvel état pour le statut
+  const [driverStatus, setDriverStatus] = useState<string>('pending'); 
 
   const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [amount, setAmount] = useState('');
@@ -41,8 +41,11 @@ export default function FinanceScreen() {
     weekRideCount: 0,  
   });
 
-  const COMMISSION_RATE = 0.20;
-  const isNotValidated = driverStatus !== 'validated'; // ✅ Règle de gestion
+  // ✅ RÈGLE : Commission réduite à 12%
+  const COMMISSION_RATE = 0.12;
+  
+  // ✅ DÉBLOCAGE : On regarde le statut récupéré de la table 'profiles'
+  const isNotValidated = driverStatus !== 'validated' && driverStatus !== 'valide'; 
 
   const NUMEROS_COLLECTE = {
     orange: "07 00 00 00 00",
@@ -76,15 +79,15 @@ export default function FinanceScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 0. RÉCUPÉRATION DU STATUT DU CHAUFFEUR (AJOUTÉ/CORRIGÉ POUR RAFRAÎCHISSEMENT)
-      const { data: driverData } = await supabase
-        .from('chauffeurs')
+      // ✅ 0. RÉCUPÉRATION DU STATUT DANS 'profiles' (Source de vérité admin)
+      const { data: profileData } = await supabase
+        .from('profiles')
         .select('status')
         .eq('id', user.id)
         .single();
       
-      if (driverData) {
-        setDriverStatus(driverData.status);
+      if (profileData) {
+        setDriverStatus(profileData.status);
       }
 
       // 1. APPEL DE LA VUE SQL POUR LE SOLDE NET
@@ -117,20 +120,16 @@ export default function FinanceScreen() {
         });
         const todayBrut = todayRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
           
-        const sevenDaysAgo = new Date();
-        sevenDaysAgo.setDate(now.getDate() - 7);
-        const weekRides = rides.filter(r => new Date(r.created_at || r.sent_at).getTime() >= sevenDaysAgo.getTime());
-        const weekBrut = weekRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
-
         setStats({
           totalEarnings: totalBrut,
           todayEarnings: todayBrut,
-          weekEarnings: weekBrut,
-          commissionBase: totalBrut * COMMISSION_RATE,
-          netEarnings: totalBrut * (1 - COMMISSION_RATE),
+          weekEarnings: 0,
+          // ✅ CALCUL COMMISSION 12% ARRONDIE AU CHIFFRE SUPÉRIEUR
+          commissionBase: Math.ceil(totalBrut * COMMISSION_RATE),
+          netEarnings: totalBrut - Math.ceil(totalBrut * COMMISSION_RATE),
           rideCount: rides.length,
           todayRideCount: todayRides.length, 
-          weekRideCount: weekRides.length,   
+          weekRideCount: 0,   
         });
 
         const sortedRides = rides
@@ -160,7 +159,6 @@ export default function FinanceScreen() {
   }
 
   const handleManualRecharge = async () => {
-    // Sécurité supplémentaire si le bouton était forcé
     if (isNotValidated) {
       Alert.alert("DIOMY", "Action impossible tant que votre compte n'est pas validé.");
       return;
@@ -243,7 +241,6 @@ export default function FinanceScreen() {
           <Text style={styles.headerSub}>Gains et dépôts validés</Text>
         </View>
 
-        {/* ✅ CARTE RECHARGE MODIFIÉE AVEC LOGIQUE DE BLOCAGE */}
         <View style={[styles.rechargeCard, isNotValidated && styles.rechargeCardDisabled]}>
             <View style={styles.rechargeHeader}>
                 <Text style={styles.rechargeLabel}>SOLDE PRÉPAYÉ DISPONIBLE</Text>
@@ -276,8 +273,8 @@ export default function FinanceScreen() {
                 <Text style={[styles.miniStatValue, {color: '#1e3a8a'}]}>{stats.todayEarnings.toLocaleString()} F</Text>
             </View>
             <View style={styles.miniStatCard}>
-                <Text style={styles.miniStatLabel}>CETTE SEMAINE ({stats.weekRideCount})</Text>
-                <Text style={[styles.miniStatValue, {color: '#1e3a8a'}]}>{stats.weekEarnings.toLocaleString()} F</Text>
+                <Text style={styles.miniStatLabel}>COMMISSION (12%)</Text>
+                <Text style={[styles.miniStatValue, {color: '#f87171'}]}>{stats.commissionBase.toLocaleString()} F</Text>
             </View>
         </View>
 
@@ -322,7 +319,7 @@ export default function FinanceScreen() {
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
                       <Text style={styles.historyPrice}>{item.price?.toLocaleString()} F</Text>
-                      <Text style={styles.historyCom}>-{(item.price * COMMISSION_RATE).toLocaleString()} F</Text>
+                      <Text style={styles.historyCom}>-{Math.ceil(item.price * COMMISSION_RATE).toLocaleString()} F</Text>
                     </View>
                 </View>
                 ))
@@ -350,7 +347,6 @@ export default function FinanceScreen() {
         </View>
       </ScrollView>
 
-      {/* MODAL DE RECHARGE */}
       <Modal visible={showRechargeModal} transparent animationType="fade">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
@@ -405,7 +401,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 26, fontWeight: 'bold', color: '#1e293b' },
   headerSub: { fontSize: 14, color: '#64748b', marginTop: 4 },
   rechargeCard: { backgroundColor: '#1e3a8a', borderRadius: 24, padding: 25, elevation: 8, alignItems: 'center' },
-  rechargeCardDisabled: { backgroundColor: '#64748b' }, // ✅ Style si non validé
+  rechargeCardDisabled: { backgroundColor: '#64748b' },
   rechargeHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   rechargeLabel: { color: '#bfdbfe', fontSize: 11, fontWeight: 'bold' },
   rechargeValue: { color: '#fff', fontSize: 36, fontWeight: '900', marginBottom: 20 },

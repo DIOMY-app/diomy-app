@@ -48,8 +48,8 @@ export default function Index() {
         ].includes(roleClean);
 
         if (isDriver) {
-          // ✅ MODIFICATION ICI : On autorise l'accès à la carte si validé OU en attente
-          if (statusClean === 'valide' || statusClean === 'en_attente_validation') {
+          // ✅ Correction : On autorise si 'valide', 'validated' ou 'en_attente_validation'
+          if (statusClean === 'valide' || statusClean === 'validated' || statusClean === 'en_attente_validation') {
             console.log("DIOMY DEBUG - Conducteur (Validé ou En Attente) -> Accès Carte");
             setTargetPath("/(tabs)/map");
           } else {
