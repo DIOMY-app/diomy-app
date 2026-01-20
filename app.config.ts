@@ -14,7 +14,6 @@ const env = {
   androidPackage: bundleId,
   supabaseUrl: "https://gmvlwhadpkojsevnljwe.supabase.co",
   supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdtdmx3aGFkcGtvanNldm5sanczIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzYyNzAwMjIsImV4cCI6MjA1MTg0NjAyMn0.VlS_rX4_B4_R0_VlS_rX4_B4_R0", 
-  // ✅ NOUVEL ID DE PROJET GÉNÉRÉ
   projectId: "89551eb6-93ef-43b2-9854-d4b92b09b1f4" 
 };
 
@@ -27,6 +26,7 @@ const config: ExpoConfig = {
   scheme: env.scheme,
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
+  
   extra: {
     supabaseUrl: env.supabaseUrl,
     supabaseAnonKey: env.supabaseAnonKey,
@@ -34,16 +34,24 @@ const config: ExpoConfig = {
       projectId: env.projectId
     }
   },
+
+  // ✅ CONFIGURATION OPTIMISÉE POUR LES MISES À JOUR (UPDATES)
   updates: {
+    enabled: true,
+    checkAutomatically: "ON_LOAD",
+    fallbackToCacheTimeout: 30000,
     url: `https://u.expo.dev/${env.projectId}`
   },
+
   runtimeVersion: {
     policy: "appVersion"
   },
+
   ios: {
     supportsTablet: true,
     bundleIdentifier: env.iosBundleId,
   },
+
   android: {
     package: env.androidPackage,
     googleServicesFile: "./google-services.json", 
@@ -76,11 +84,13 @@ const config: ExpoConfig = {
       },
     ],
   },
+
   web: {
     bundler: "metro",
     output: "static",
     favicon: "./assets/images/favicon.png",
   },
+
   plugins: [
     "expo-router",
     [
@@ -125,6 +135,7 @@ const config: ExpoConfig = {
       },
     ],
   ],
+
   experiments: {
     typedRoutes: true,
     reactCompiler: true,
