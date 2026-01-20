@@ -50,6 +50,7 @@ export default function MapDisplay({
 
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
+  const hasNotifiedArrival = useRef(false); // ✅ Ajouté pour l'arrivée auto
 
   const [role, setRole] = useState<string | null>(initialRole || null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -89,7 +90,7 @@ export default function MapDisplay({
 
   const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
 
-  // ✅ VOCALIA INSTANTANÉ : Priorité à la parole sur le réseau
+  // ✅ CORRECTIF VOCALIA : Priorité et arrêt des files d'attente
   const speak = async (text: string) => {
     try {
       await Speech.stop();
@@ -97,7 +98,6 @@ export default function MapDisplay({
     } catch (e) { console.error("Speech error:", e); }
   };
 
-  // ✅ ACTION BOUTON RAPIDE : On parle d'abord, on synchronise après
   const handleToggleOnline = async () => {
     if (!canGoOnline) {
       Alert.alert("DIOMY", "Votre dossier est en cours d'analyse.");
@@ -111,12 +111,9 @@ export default function MapDisplay({
     }
 
     const nextStatus = !isOnline;
-    
-    // 1. Retour vocal et visuel immédiat
     speak(nextStatus ? "Vous êtes en ligne." : "Vous êtes déconnecté.");
     setIsOnline(nextStatus);
 
-    // 2. Mise à jour Supabase en arrière-plan
     try {
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       await supabase.from('conducteurs').upsert({ 
@@ -161,27 +158,45 @@ export default function MapDisplay({
     return R * c;
   };
 
+  // ✅ CORRECTIF POINT BLEU : Tentatives multiples pour synchronisation WebView
   const getCurrentLocation = async () => {
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
     
-    // ✅ FORCE POINT BLEU INITIAL
-    const locInitial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-    const currentPos = { lat: locInitial.coords.latitude, lon: locInitial.coords.longitude };
-    setPickupLocation(currentPos);
-    
-    // Envoi immédiat à la carte
-    webviewRef.current?.postMessage(JSON.stringify({ 
-        type: 'points', 
-        p: currentPos, 
-        d: selectedLocation || currentPos 
-    }));
+    const sendPosToMap = async () => {
+      try {
+        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+        const currentPos = { lat: loc.coords.latitude, lon: loc.coords.longitude };
+        setPickupLocation(currentPos);
+        webviewRef.current?.postMessage(JSON.stringify({ 
+            type: 'points', p: currentPos, d: selectedLocation || currentPos 
+        }));
+      } catch (e) { console.log("GPS initial sync..."); }
+    };
+
+    await sendPosToMap(); // Tentative 1
+    setTimeout(sendPosToMap, 3000); // Tentative 2 (sécurité chargement WebView)
 
     await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 5 },
-      (location) => {
+      async (location) => {
         const { latitude, longitude } = location.coords;
         const currentPos = { lat: latitude, lon: longitude };
+
+        // ✅ CORRECTIF ARRIVÉE AUTOMATIQUE
+        if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current && currentRideId) {
+            const { data: ride } = await supabase.from('rides_request').select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
+            if (ride) {
+                const dist = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000;
+                if (dist < 50) {
+                    hasNotifiedArrival.current = true;
+                    setHasArrivedAtPickup(true);
+                    sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
+                    speak("Vous êtes arrivé au point de rendez-vous. Le passager a été notifié.");
+                    Vibration.vibrate(500);
+                }
+            }
+        }
 
         if (rideStatus === 'in_progress' && lastLocForDistance.current) {
           const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
@@ -298,6 +313,7 @@ export default function MapDisplay({
     setChatMessages([]); setShowChat(false);
     isHandlingModal.current = false;
     lastProcessedRideId.current = null;
+    hasNotifiedArrival.current = false; // Reset sécurité arrivée
     setHasArrivedAtPickup(false);
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
     webviewRef.current?.postMessage(JSON.stringify({ type: 'reset_map' }));
@@ -339,7 +355,6 @@ export default function MapDisplay({
         setUserScore(prof?.score ?? 100);
         if (cond) setIsOnline(cond.is_online);
         
-        // ✅ RÉVEIL VOCALIA : On force le chargement du moteur
         Speech.speak("", { language: 'fr' });
 
         setIsMapReady(true);
@@ -392,6 +407,7 @@ export default function MapDisplay({
             if (msg.content === "🏁 Je suis arrivé au point de rendez-vous !") {
                 Vibration.vibrate([0, 500, 200, 500]);
                 speak("Votre chauffeur est arrivé.");
+                setHasArrivedAtPickup(true); // Sync status chauffeur/passager
             }
             if (msg.content.includes("⏳")) setIsWaiting(true);
             if (msg.content.includes("✅")) setIsWaiting(false);
@@ -451,7 +467,6 @@ export default function MapDisplay({
           javaScriptEnabled={true} 
           domStorageEnabled={true} 
           androidLayerType="hardware"
-          // ✅ FORCE POINT BLEU AU CHARGEMENT DE LA WEBVIEW
           onLoadEnd={() => {
             if (pickupLocation) {
               webviewRef.current?.postMessage(JSON.stringify({ 
@@ -530,7 +545,7 @@ export default function MapDisplay({
                     isOnline ? styles.bgOnline : styles.bgOffline,
                     !canGoOnline && { backgroundColor: '#94a3b8' } 
                   ]} 
-                  onPress={handleToggleOnline} // ✅ UTILISATION DE LA FONCTION RAPIDE
+                  onPress={handleToggleOnline}
                 >
                   <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
                 </TouchableOpacity>
