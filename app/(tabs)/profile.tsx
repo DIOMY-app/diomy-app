@@ -8,7 +8,6 @@ import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 
 const { width } = Dimensions.get('window');
 
@@ -167,59 +166,48 @@ export default function ProfileScreen() {
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (permission.status !== 'granted') { 
-      Alert.alert("Erreur", "Permission refusée."); 
+      Alert.alert("Erreur", "Permission refusée. Vous devez autoriser l'accès pour changer votre photo."); 
       return; 
     }
 
+    // ✅ OPTIMISATION MÉMOIRE : On baisse la qualité pour éviter le crash (Android RAM management)
     const result = await (useCamera 
-      ? ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 0.7 })
-      : ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.7 })
+      ? ImagePicker.launchCameraAsync({
+          allowsEditing: false, // Plus stable sur Android bas de gamme
+          quality: 0.3, // Image légère = pas de crash
+        })
+      : ImagePicker.launchImageLibraryAsync({
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.3,
+        })
     );
 
     if (result && !result.canceled) {
       setLoading(true);
       try {
         const photo = result.assets[0];
-
-        // ✅ COMPRESSION NATIVE (Empêche le crash RAM sur Android)
-        const manipulated = await ImageManipulator.manipulateAsync(
-          photo.uri,
-          [{ resize: { width: 400, height: 400 } }],
-          { compress: 0.5, format: ImageManipulator.SaveFormat.JPEG }
-        );
-
-        // ✅ CONVERSION BINAIRE (Beaucoup plus robuste que FormData pour Supabase)
-        const response = await fetch(manipulated.uri);
-        const blob = await response.blob();
-        const arrayBuffer = await new Response(blob).arrayBuffer();
-
-        const fileName = `avatar-${profile.id}-${Date.now()}.jpg`;
-
-        // ✅ UPLOAD STORAGE
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(fileName, arrayBuffer, {
-            contentType: 'image/jpeg',
-            upsert: true
-          });
-
-        if (uploadError) throw uploadError;
-
-        // ✅ MISE À JOUR BASE DE DONNÉES (Persistance garantie après reconnexion)
-        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ avatar_url: publicUrl })
-          .eq('id', profile.id);
-
-        if (updateError) throw updateError;
-
-        setProfile({ ...profile, avatar_url: publicUrl });
-        Alert.alert("DIOMY", "Votre photo a été mise à jour !");
+        const ext = photo.uri.split('.').pop();
+        const fileName = `avatar-${profile.id}-${Date.now()}.${ext}`;
         
+        const formData = new FormData();
+        formData.append('file', { uri: photo.uri, name: fileName, type: `image/${ext}` } as any);
+        
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, formData as any);
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+          
+          // ✅ PERSISTANCE : On enregistre l'URL dans la table profiles pour qu'elle reste après déconnexion
+          await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id);
+
+          setProfile({ ...profile, avatar_url: publicUrl });
+          Alert.alert("Succès", "Votre photo a été mise à jour !");
+        } else {
+          throw uploadError;
+        }
       } catch (err) { 
-        console.error("Erreur upload:", err);
-        Alert.alert("Erreur", "La sauvegarde de la photo a échoué.");
+        console.error(err);
+        Alert.alert("Erreur", "Le téléchargement de la photo a échoué.");
       } finally { 
         setLoading(false); 
       }
