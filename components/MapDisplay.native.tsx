@@ -88,7 +88,8 @@ export default function MapDisplay({
 
   const STADIA_API_KEY = "21bfb3bb-affc-4360-8e0f-c2a636e1db34"; 
 
-  const canGoOnline = userStatus === 'validated';
+  // ✅ DÉBLOCAGE FLEXIBLE : Accepte 'valide' ou 'validated' venant de la table profiles
+  const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
 
   const speak = (text: string) => {
     Speech.speak(text, { language: 'fr', pitch: 1, rate: 0.9 });
@@ -117,7 +118,6 @@ export default function MapDisplay({
     }
   };
 
-  // ✅ CALCUL DE DISTANCE RÉELLE (Haversine)
   const calculateDistance = (lat1: number, lon1: number, lat2: number, lon2: number) => {
     const R = 6371; 
     const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -139,7 +139,6 @@ export default function MapDisplay({
         const { latitude, longitude } = location.coords;
         const currentPos = { lat: latitude, lon: longitude };
 
-        // Calcul de la distance réelle uniquement pendant le trajet client
         if (rideStatus === 'in_progress' && lastLocForDistance.current) {
           const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
           setRealTraveledDistance(prev => prev + d);
@@ -178,7 +177,7 @@ export default function MapDisplay({
         webviewRef.current?.postMessage(JSON.stringify({ 
           type: 'draw_route', 
           coordinates: data.routes[0].geometry.coordinates,
-          focusDest: true // ✅ Déclenche le zoom sur la destination finale
+          focusDest: true 
         }));
         return data.routes[0];
       }
@@ -206,7 +205,6 @@ export default function MapDisplay({
     setDestination(name);
     setSuggestions([]);
     
-    // ✅ TRACÉ IMMÉDIAT ET ZOOM DESTINATION POUR LE PASSAGER (ACQUIS PRÉSERVÉ)
     const loc = await Location.getCurrentPositionAsync({});
     const r = await getRoute(loc.coords.latitude, loc.coords.longitude, lat, lon);
     if (r) {
@@ -223,7 +221,6 @@ export default function MapDisplay({
       const initialPrice = rideToFinish?.price || 500;
       const initialDistKm = parseFloat(estimatedDistance || "0");
 
-      // ✅ LOGIQUE DE PRIX ÉQUITABLE : Bonus raccourci pour chauffeur / Ajustement si détour
       let finalPrice = initialPrice;
       if (realTraveledDistance > initialDistKm) {
         finalPrice = Math.ceil((250 + (realTraveledDistance > 1.5 ? (realTraveledDistance - 1.5) * 100 : 0) + waitingCharge) / 50) * 50;
@@ -355,7 +352,7 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}.blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);transition:all 0.3s linear;}.leaflet-control-attribution{display:none !important;}</style></head><body><div id="map"></div><script>
+  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}.blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);transition:all 0.4s linear;}.leaflet-control-attribution{display:none !important;}</style></head><body><div id="map"></div><script>
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
     L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
     var markers={};var routeLayer=null;
@@ -364,8 +361,6 @@ export default function MapDisplay({
         if(data.type==='draw_route' && data.coordinates){
             if(routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
             routeLayer = L.polyline(data.coordinates.map(c => [c[1], c[0]]), {color: '#2563eb', weight: 6, opacity: 0.8, smoothFactor: 1.5}).addTo(map);
-            
-            // ✅ ZOOM PASSAGER SUR DESTINATION (Ajustement focusDest)
             if(data.focusDest) {
                 map.setView([data.coordinates[data.coordinates.length-1][1], data.coordinates[data.coordinates.length-1][0]], 16);
             } else {
@@ -378,7 +373,6 @@ export default function MapDisplay({
             markers.p=L.marker([data.p.lat,data.p.lon],{icon:L.divIcon({className:'blue-dot',iconSize:[20,20]})}).addTo(map);
             if(data.d&&(data.d.lat!==data.p.lat)) markers.d=L.marker([data.d.lat,data.d.lon]).addTo(map);
             
-            // ✅ MODE NAVIGATION (Auto-suivi centré sur le chauffeur)
             if(data.isNavigating) {
                 map.setView([data.p.lat, data.p.lon], 18);
             } else if(!routeLayer){ 
@@ -538,7 +532,54 @@ export default function MapDisplay({
         </View>
       </KeyboardAvoidingView>
 
-      {/* MODALS CHAT ET RÉSUMÉ RESTENT IDENTIQUES */}
+      <Modal visible={showChat} animationType="slide" transparent={false}>
+        <View style={styles.chatContainer}>
+          <View style={styles.chatHeader}>
+            <TouchableOpacity onPress={() => setShowChat(false)}><Ionicons name="chevron-back" size={28} color="#1e3a8a" /></TouchableOpacity>
+            <Text style={styles.chatTitle}>Discussion</Text>
+            <div style={{width: 28}} />
+          </View>
+          <ScrollView ref={chatScrollRef} style={styles.messagesList} onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}>
+            {chatMessages.map((msg, idx) => (
+              <View key={idx} style={[styles.messageBubble, msg.sender_id === userId ? styles.myMessage : styles.theirMessage]}>
+                <Text style={[styles.messageText, msg.sender_id === userId ? styles.myText : styles.theirText]}>{msg.content}</Text>
+              </View>
+            ))}
+          </ScrollView>
+          <View style={styles.chatInputArea}>
+            <TextInput style={styles.chatInput} placeholder="Écrivez votre message..." value={newMessage} onChangeText={setNewMessage} />
+            <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage()}><Ionicons name="send" size={24} color="#1e3a8a" /></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showSummary} transparent animationType="fade">
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { padding: 25 }]}>
+            <Ionicons name="checkmark-circle" size={60} color="#22c55e" />
+            <Text style={styles.modalTitle}>Course Terminée</Text>
+            <Text style={styles.priceSummary}>{finalRideData?.price} FCFA</Text>
+            {finalRideData?.waitingCharge > 0 && (
+              <Text style={{ color: '#f59e0b', fontWeight: 'bold', marginBottom: 10 }}>
+                (dont {finalRideData?.waitingCharge} FCFA d'attente)
+              </Text>
+            )}
+            <View style={{ width: '100%', alignItems: 'center', marginVertical: 15 }}>
+              <Text style={{ color: '#64748b', marginBottom: 10 }}>Notez votre partenaire :</Text>
+              <View style={{ flexDirection: 'row', gap: 8 }}>
+                {[1, 2, 3, 4, 5].map((star) => (
+                  <TouchableOpacity key={star} onPress={() => setUserRating(star)}>
+                    <Ionicons name={star <= userRating ? "star" : "star-outline"} size={32} color={star <= userRating ? "#eab308" : "#cbd5e1"} />
+                  </TouchableOpacity>
+                ))}
+              </View>
+            </View>
+            <TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: userRating > 0 ? '#1e3a8a' : '#f1f5f9' }]} onPress={userRating > 0 ? submitRating : () => setShowSummary(false)}>
+              {isSubmittingRating ? <ActivityIndicator color="#fff" /> : <Text style={[styles.closeSummaryText, { color: userRating > 0 ? '#fff' : '#64748b' }]}>ENVOYER MA NOTE</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }

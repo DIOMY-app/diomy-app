@@ -1,8 +1,8 @@
-import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, StatusBar, ActivityIndicator, Alert } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { StyleSheet, View, StatusBar, ActivityIndicator } from 'react-native';
 import MapDisplay from '../../components/MapDisplay.native'; 
 import { supabase } from '../../lib/supabase';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 
 export default function MapScreen() {
   const [role, setRole] = useState<string | null>(null);
@@ -11,9 +11,12 @@ export default function MapScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  useEffect(() => {
-    fetchUserAndStatus();
-  }, []);
+  // ✅ Utilisation de useFocusEffect pour rafraîchir le statut à chaque fois que l'écran est vu
+  useFocusEffect(
+    useCallback(() => {
+      fetchUserAndStatus();
+    }, [])
+  );
 
   async function fetchUserAndStatus() {
     try {
@@ -23,6 +26,7 @@ export default function MapScreen() {
         return;
       }
 
+      // ✅ RÉGLE : Lecture directe de la colonne status dans profiles
       const { data: profile } = await supabase
         .from('profiles')
         .select('role, status')
@@ -37,16 +41,10 @@ export default function MapScreen() {
         const isDriver = ['chauffeur', 'conducteur', 'conducteurs'].includes(roleClean);
 
         if (isDriver) {
-          // ✅ MODIFICATION : On autorise l'accès à la carte même en attente
-          if (statusClean === 'valide' || statusClean === 'en_attente_validation') {
+          // On autorise l'accès à la carte si 'valide', 'validated' ou 'en_attente_validation'
+          if (statusClean === 'valide' || statusClean === 'validated' || statusClean === 'en_attente_validation') {
             setRole('chauffeur');
-            
-            // Petit message informatif discret la première fois
-            if (statusClean === 'en_attente_validation') {
-              console.log("DIOMY - Chauffeur en attente sur la carte (Mode Consultation)");
-            }
           } else {
-            // Si c'est un nouveau chauffeur sans dossier, direction formulaire
             router.replace("/become-driver" as any);
             return; 
           }
@@ -74,10 +72,9 @@ export default function MapScreen() {
       <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       
       <View style={{ flex: 1 }}>
-        {/* ✅ On passe le status à MapDisplay pour qu'il puisse griser le bouton "En Ligne" */}
         <MapDisplay 
             userRole={role} 
-            userStatus={userStatus} // On ajoute cette prop
+            userStatus={userStatus} // ✅ Transmis au composant natif
             initialDestination={params.address ? {
               address: params.address as string,
               lat: params.lat ? parseFloat(params.lat as string) : undefined,
