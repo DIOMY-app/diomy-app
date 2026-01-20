@@ -157,19 +157,13 @@ export default function MapDisplay({
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
     
-    const sendPos = async () => {
-      try {
-        const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-        const currentPos = { lat: loc.coords.latitude, lon: loc.coords.longitude };
-        setPickupLocation(currentPos);
-        webviewRef.current?.postMessage(JSON.stringify({ 
-            type: 'points', p: currentPos, d: selectedLocation || currentPos 
-        }));
-      } catch (e) { console.log("GPS initial sync..."); }
-    };
-
-    await sendPos(); // Essai 1
-    setTimeout(sendPos, 3000); // Essai 2 (Sécurité WebView)
+    const locInitial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    const currentPos = { lat: locInitial.coords.latitude, lon: locInitial.coords.longitude };
+    setPickupLocation(currentPos);
+    
+    webviewRef.current?.postMessage(JSON.stringify({ 
+        type: 'points', p: currentPos, d: selectedLocation || currentPos 
+    }));
 
     await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 5 },
@@ -177,11 +171,12 @@ export default function MapDisplay({
         const { latitude, longitude } = location.coords;
         const currentPos = { lat: latitude, lon: longitude };
 
+        // ✅ LOGIQUE AUTOMATIQUE : ARRIVÉE À MOINS DE 50M
         if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current) {
             const { data: ride } = await supabase.from('rides_request').select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
             if (ride) {
-                const dist = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000;
-                if (dist < 50) {
+                const distToClient = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000; // en mètres
+                if (distToClient < 50) {
                     hasNotifiedArrival.current = true;
                     setHasArrivedAtPickup(true);
                     sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
@@ -192,10 +187,12 @@ export default function MapDisplay({
         }
 
         if (rideStatus === 'in_progress' && lastLocForDistance.current) {
-          setRealTraveledDistance(prev => prev + calculateDistance(lastLocForDistance.current!.lat, lastLocForDistance.current!.lon, latitude, longitude));
+          const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
+          setRealTraveledDistance(prev => prev + d);
         }
         lastLocForDistance.current = currentPos;
         setPickupLocation(currentPos);
+
         webviewRef.current?.postMessage(JSON.stringify({ 
             type: 'points', p: currentPos, d: selectedLocation || currentPos,
             isNavigating: rideStatus === 'in_progress' || rideStatus === 'accepted'

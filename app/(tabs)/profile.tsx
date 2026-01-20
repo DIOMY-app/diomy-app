@@ -30,26 +30,22 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   useEffect(() => {
-  fetchData();
-}, []);
+    fetchData();
+    const channel = supabase
+      .channel('profile-sync')
+      .on('postgres_changes', { 
+        event: 'UPDATE', 
+        schema: 'public', 
+        table: 'profiles'
+      }, (payload) => {
+        if (payload.new.id === profile?.id && !loading) {
+          fetchData();
+        }
+      })
+      .subscribe();
 
-useEffect(() => {
-  if (!profile?.id) return;
-  
-  const channel = supabase
-    .channel('profile-sync')
-    .on('postgres_changes', { 
-      event: 'UPDATE', 
-      schema: 'public', 
-      table: 'profiles',
-      filter: `id=eq.${profile.id}`
-    }, () => {
-      fetchData();
-    })
-    .subscribe();
-
-  return () => { supabase.removeChannel(channel); };
-}, [profile?.id]);
+    return () => { supabase.removeChannel(channel); };
+  }, [profile?.id]);
 
   async function fetchData() {
     try {
@@ -171,13 +167,20 @@ useEffect(() => {
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (permission.status !== 'granted') { 
-      Alert.alert("Erreur", "Permission refusée."); 
+      Alert.alert("Erreur", "Permission refusée. Vous devez autoriser l'accès pour changer votre photo."); 
       return; 
     }
 
     const result = await (useCamera 
-      ? ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 0.7 })
-      : ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.7 })
+      ? ImagePicker.launchCameraAsync({
+          allowsEditing: false, 
+          quality: 0.7, 
+        })
+      : ImagePicker.launchImageLibraryAsync({
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.7,
+        })
     );
 
     if (result && !result.canceled) {
@@ -185,26 +188,31 @@ useEffect(() => {
       try {
         const photo = result.assets[0];
 
-        // ✅ COMPRESSION NATIVE (Empêche le crash RAM sur Android)
+        // ✅ 1. COMPRESSION NATIVE (Empêche le crash sur Android)
         const manipulated = await ImageManipulator.manipulateAsync(
           photo.uri,
           [{ resize: { width: 500, height: 500 } }],
           { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
         );
 
-        // ✅ CONVERSION BINAIRE POUR SUPABASE
+        // ✅ 2. CONVERSION BINAIRE (Beaucoup plus robuste que FormData)
         const response = await fetch(manipulated.uri);
         const blob = await response.blob();
         const arrayBuffer = await new Response(blob).arrayBuffer();
 
         const fileName = `avatar-${profile.id}-${Date.now()}.jpg`;
 
+        // ✅ 3. UPLOAD STORAGE
         const { error: uploadError } = await supabase.storage
           .from('avatars')
-          .upload(fileName, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
+          .upload(fileName, arrayBuffer, {
+            contentType: 'image/jpeg',
+            upsert: true
+          });
 
         if (uploadError) throw uploadError;
 
+        // ✅ 4. MISE À JOUR BASE DE DONNÉES (Persistance garantie)
         const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
         
         const { error: updateError } = await supabase
@@ -218,7 +226,7 @@ useEffect(() => {
         Alert.alert("DIOMY", "Votre photo a été mise à jour !");
         
       } catch (err) { 
-        console.error("Erreur upload:", err);
+        console.error("Détail upload:", err);
         Alert.alert("Erreur", "La sauvegarde de la photo a échoué.");
       } finally { 
         setLoading(false); 
@@ -324,7 +332,7 @@ useEffect(() => {
               <View style={styles.statBox}>
                 <Text style={styles.statLabel}>Statut Compte</Text>
                 <Text style={[styles.statValue, {color: soldeInfo.solde_disponible > 500 ? '#22c55e' : '#ef4444'}]}>
-                  {soldeInfo.statut_compte || (soldeInfo.solde_disponible > 500 ? 'ACTIF' : 'BAS')}
+                  {soldeInfo.solde_disponible > 500 ? 'ACTIF' : 'BAS'}
                 </Text>
               </View>
             </View>
