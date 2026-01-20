@@ -77,8 +77,6 @@ export default function MapDisplay({
   const waitingTimerRef = useRef<any>(null);
 
   const [hasArrivedAtPickup, setHasArrivedAtPickup] = useState(false);
-  const hasNotifiedArrival = useRef(false); // ✅ Pour ne notifier qu'une fois
-  
   const [showChat, setShowChat] = useState(false);
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
@@ -91,6 +89,7 @@ export default function MapDisplay({
 
   const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
 
+  // ✅ VOCALIA INSTANTANÉ : Priorité à la parole sur le réseau
   const speak = async (text: string) => {
     try {
       await Speech.stop();
@@ -98,23 +97,32 @@ export default function MapDisplay({
     } catch (e) { console.error("Speech error:", e); }
   };
 
+  // ✅ ACTION BOUTON RAPIDE : On parle d'abord, on synchronise après
   const handleToggleOnline = async () => {
     if (!canGoOnline) {
       Alert.alert("DIOMY", "Votre dossier est en cours d'analyse.");
       return;
     }
+    
     const { data: soldeData } = await supabase.from('chauffeur_solde_net').select('solde_disponible').eq('driver_id', userId).maybeSingle();
     if (!isOnline && (soldeData?.solde_disponible || 0) < 50) { 
       Alert.alert("DIOMY", "Solde insuffisant."); 
       return; 
     }
+
     const nextStatus = !isOnline;
+    
+    // 1. Retour vocal et visuel immédiat
     speak(nextStatus ? "Vous êtes en ligne." : "Vous êtes déconnecté.");
     setIsOnline(nextStatus);
+
+    // 2. Mise à jour Supabase en arrière-plan
     try {
       const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
       await supabase.from('conducteurs').upsert({ 
-        id: userId, is_online: nextStatus, location: `POINT(${loc.coords.longitude} ${loc.coords.latitude})` 
+        id: userId, 
+        is_online: nextStatus, 
+        location: `POINT(${loc.coords.longitude} ${loc.coords.latitude})` 
       });
     } catch (err) { console.error("Sync error:", err); }
   };
@@ -157,34 +165,23 @@ export default function MapDisplay({
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
     
+    // ✅ FORCE POINT BLEU INITIAL
     const locInitial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
     const currentPos = { lat: locInitial.coords.latitude, lon: locInitial.coords.longitude };
     setPickupLocation(currentPos);
     
+    // Envoi immédiat à la carte
     webviewRef.current?.postMessage(JSON.stringify({ 
-        type: 'points', p: currentPos, d: selectedLocation || currentPos 
+        type: 'points', 
+        p: currentPos, 
+        d: selectedLocation || currentPos 
     }));
 
     await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 5 },
-      async (location) => {
+      (location) => {
         const { latitude, longitude } = location.coords;
         const currentPos = { lat: latitude, lon: longitude };
-
-        // ✅ LOGIQUE AUTOMATIQUE : ARRIVÉE À MOINS DE 50M
-        if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current) {
-            const { data: ride } = await supabase.from('rides_request').select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
-            if (ride) {
-                const distToClient = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000; // en mètres
-                if (distToClient < 50) {
-                    hasNotifiedArrival.current = true;
-                    setHasArrivedAtPickup(true);
-                    sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
-                    speak("Vous êtes arrivé. Le passager a été notifié.");
-                    Vibration.vibrate(500);
-                }
-            }
-        }
 
         if (rideStatus === 'in_progress' && lastLocForDistance.current) {
           const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
@@ -194,14 +191,14 @@ export default function MapDisplay({
         setPickupLocation(currentPos);
 
         webviewRef.current?.postMessage(JSON.stringify({ 
-            type: 'points', p: currentPos, d: selectedLocation || currentPos,
+            type: 'points', 
+            p: currentPos, 
+            d: selectedLocation || currentPos,
             isNavigating: rideStatus === 'in_progress' || rideStatus === 'accepted'
         }));
       }
     );
   };
-
-  // ... (Garder useEffect conducteurs, getRoute, updateDriverNavigation, handleLocationSelect)
 
   useEffect(() => {
     if (role === 'chauffeur' && isOnline) {
@@ -251,6 +248,7 @@ export default function MapDisplay({
     setSelectedLocation({ lat, lon });
     setDestination(name);
     setSuggestions([]);
+    
     const loc = await Location.getCurrentPositionAsync({});
     const r = await getRoute(loc.coords.latitude, loc.coords.longitude, lat, lon);
     if (r) {
@@ -263,17 +261,25 @@ export default function MapDisplay({
     try {
       const waitingCharge = Math.ceil(waitingTime / 60) * 25;
       const { data: rideToFinish } = await supabase.from('rides_request').select('*').eq('id', currentRideId).single();
+      
       const initialPrice = rideToFinish?.price || 500;
       const initialDistKm = parseFloat(estimatedDistance || "0");
+
       let finalPrice = initialPrice;
       if (realTraveledDistance > initialDistKm) {
         finalPrice = Math.ceil((250 + (realTraveledDistance > 1.5 ? (realTraveledDistance - 1.5) * 100 : 0) + waitingCharge) / 50) * 50;
       } else {
         finalPrice = initialPrice + waitingCharge;
       }
-      await supabase.from('rides_request').update({ status: 'completed', price: finalPrice }).eq('id', currentRideId);
+      
+      await supabase.from('rides_request').update({ 
+        status: 'completed',
+        price: finalPrice 
+      }).eq('id', currentRideId);
+
       setFinalRideData({ ...rideToFinish, price: finalPrice, waitingCharge });
-      setShowSummary(true); setIsWaiting(false);
+      setShowSummary(true); 
+      setIsWaiting(false);
       speak(`Course terminée. Le montant est de ${finalPrice} francs.`);
     } catch (err) { console.error(err); }
   };
@@ -293,12 +299,9 @@ export default function MapDisplay({
     isHandlingModal.current = false;
     lastProcessedRideId.current = null;
     setHasArrivedAtPickup(false);
-    hasNotifiedArrival.current = false; // ✅ Reset notification
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
     webviewRef.current?.postMessage(JSON.stringify({ type: 'reset_map' }));
   };
-
-  // ... (Garder submitRating, sendMessage, init useEffect, channel useEffect, messages useEffect, mapHtml)
 
   const submitRating = async () => {
     if (userRating === 0 || !finalRideData) return;
@@ -335,7 +338,10 @@ export default function MapDisplay({
         setRole((cond || prof?.role === 'chauffeur') ? "chauffeur" : "passager");
         setUserScore(prof?.score ?? 100);
         if (cond) setIsOnline(cond.is_online);
+        
+        // ✅ RÉVEIL VOCALIA : On force le chargement du moteur
         Speech.speak("", { language: 'fr' });
+
         setIsMapReady(true);
         setTimeout(getCurrentLocation, 1000);
       } catch (error) { console.error(error); }
@@ -438,11 +444,21 @@ export default function MapDisplay({
     <View style={styles.container}>
       <View style={StyleSheet.absoluteFill}>
         <WebView 
-          ref={webviewRef} originWhitelist={['*']} source={{ html: mapHtml }} 
-          style={{ flex: 1, backgroundColor: 'transparent' }} javaScriptEnabled={true} domStorageEnabled={true} androidLayerType="hardware"
+          ref={webviewRef} 
+          originWhitelist={['*']} 
+          source={{ html: mapHtml }} 
+          style={{ flex: 1, backgroundColor: 'transparent' }} 
+          javaScriptEnabled={true} 
+          domStorageEnabled={true} 
+          androidLayerType="hardware"
+          // ✅ FORCE POINT BLEU AU CHARGEMENT DE LA WEBVIEW
           onLoadEnd={() => {
             if (pickupLocation) {
-              webviewRef.current?.postMessage(JSON.stringify({ type: 'points', p: pickupLocation, d: selectedLocation || pickupLocation }));
+              webviewRef.current?.postMessage(JSON.stringify({ 
+                type: 'points', 
+                p: pickupLocation, 
+                d: selectedLocation || pickupLocation 
+              }));
             }
           }}
           onMessage={async (e) => {
@@ -488,51 +504,39 @@ export default function MapDisplay({
               
               {rideStatus === 'accepted' ? (
                 <View style={{ width: '100%' }}>
-                    {/* ✅ FUSION ARRRIVÉ/DÉBUTER AVEC GLISSER (APPUI LONG DE SÉCURITÉ) */}
-                    <TouchableOpacity 
-                        style={[styles.mainBtn, {backgroundColor: hasArrivedAtPickup ? '#f97316' : '#1e3a8a'}]} 
-                        onLongPress={async () => {
-                            if (!hasArrivedAtPickup) {
-                                Alert.alert("DIOMY", "Veuillez vous rapprocher du client pour débuter.");
-                                return;
-                            }
-                            await supabase.from('rides_request').update({ status: 'in_progress' }).eq('id', currentRideId);
-                            speak("Course débutée. Bonne route.");
-                            Vibration.vibrate(100);
-                        }}
-                    >
-                      <Text style={styles.btnText}>
-                        {hasArrivedAtPickup ? "MAINTENIR POUR DÉBUTER" : "EN ROUTE VERS LE CLIENT..."}
-                      </Text>
+                  {!hasArrivedAtPickup ? (
+                    <TouchableOpacity style={[styles.mainBtn, {backgroundColor: '#1e3a8a'}]} onPress={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé au passager."); }}>
+                      <Text style={styles.btnText}>JE SUIS ARRIVÉ AU PASSAGER</Text>
                     </TouchableOpacity>
-                    {hasArrivedAtPickup && <Text style={styles.swipeHint}>Appui long pour valider le départ</Text>}
+                  ) : (
+                    <TouchableOpacity style={[styles.mainBtn, {backgroundColor: '#f97316'}]} onPress={async () => { await supabase.from('rides_request').update({ status: 'in_progress' }).eq('id', currentRideId); speak("Course débutée."); }}>
+                      <Text style={styles.btnText}>DÉBUTER LA COURSE</Text>
+                    </TouchableOpacity>
+                  )}
                 </View>
               ) : rideStatus === 'in_progress' ? (
                 <View style={{ gap: 10 }}>
                   <TouchableOpacity style={[styles.mainBtn, {backgroundColor: isWaiting ? '#ef4444' : '#f59e0b'}]} onPress={toggleWaiting}>
                     <Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text>
                   </TouchableOpacity>
-                  
-                  {/* ✅ GLISSER POUR TERMINER (APPUI LONG) */}
-                  <TouchableOpacity 
-                    style={[styles.mainBtn, {backgroundColor: '#22c55e'}]} 
-                    onLongPress={() => { handleFinalizeRide(); Vibration.vibrate(100); }}
-                  >
-                    <Text style={styles.btnText}>MAINTENIR POUR TERMINER</Text>
+                  <TouchableOpacity style={[styles.mainBtn, {backgroundColor: '#22c55e'}]} onPress={handleFinalizeRide}>
+                    <Text style={styles.btnText}>TERMINER LA COURSE</Text>
                   </TouchableOpacity>
-                  <Text style={styles.swipeHint}>Appui long pour encaisser</Text>
                 </View>
               ) : (
                 <TouchableOpacity 
-                  style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} 
-                  onPress={handleToggleOnline}
+                  style={[
+                    styles.mainBtn, 
+                    isOnline ? styles.bgOnline : styles.bgOffline,
+                    !canGoOnline && { backgroundColor: '#94a3b8' } 
+                  ]} 
+                  onPress={handleToggleOnline} // ✅ UTILISATION DE LA FONCTION RAPIDE
                 >
                   <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
                 </TouchableOpacity>
               )}
             </View>
           ) : (
-            // ... (Reste du code PassengerPane inchangé pour tes acquis)
             <View style={styles.passengerPane}>
               {rideStatus === 'pending' ? (
                 <View style={styles.statusCard}><ActivityIndicator color="#1e3a8a" /><Text style={styles.statusText}>Recherche d'un chauffeur...</Text></View>
@@ -583,8 +587,7 @@ export default function MapDisplay({
           )}
         </View>
       </KeyboardAvoidingView>
-      
-      {/* ... (Reste des Modals chat et summary identiques) */}
+
       <Modal visible={showChat} animationType="slide" transparent={false}>
         <View style={styles.chatContainer}>
           <View style={styles.chatHeader}>
@@ -638,7 +641,6 @@ export default function MapDisplay({
 }
 
 const styles = StyleSheet.create({
-  // ... (Garder tes styles existants)
   container: { flex: 1, backgroundColor: '#009199' },
   loader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
   loaderText: { marginTop: 10, fontSize: 16, color: '#009199', fontWeight: 'bold' },
@@ -694,8 +696,5 @@ const styles = StyleSheet.create({
   theirText: { color: '#1e293b' },
   chatInputArea: { flexDirection: 'row', padding: 15, alignItems: 'center', borderTopWidth: 1, borderColor: '#f1f5f9' },
   chatInput: { flex: 1, backgroundColor: '#f8fafc', padding: 12, borderRadius: 20, marginRight: 10 },
-  sendBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
-  
-  // ✅ NOUVEAUX STYLES POUR LA SIMPLIFICATION
-  swipeHint: { textAlign: 'center', color: '#94a3b8', fontSize: 11, marginTop: 8, fontWeight: 'bold', fontStyle: 'italic' }
+  sendBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' }
 });

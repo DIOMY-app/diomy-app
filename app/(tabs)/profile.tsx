@@ -8,7 +8,6 @@ import { useRouter } from 'expo-router';
 import { Ionicons, MaterialCommunityIcons, FontAwesome5 } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import * as ImagePicker from 'expo-image-picker';
-import * as ImageManipulator from 'expo-image-manipulator';
 
 const { width } = Dimensions.get('window');
 
@@ -171,15 +170,16 @@ export default function ProfileScreen() {
       return; 
     }
 
+    // ✅ OPTIMISATION MÉMOIRE : On baisse la qualité pour éviter le crash (Android RAM management)
     const result = await (useCamera 
       ? ImagePicker.launchCameraAsync({
-          allowsEditing: false, 
-          quality: 0.7, 
+          allowsEditing: false, // Plus stable sur Android bas de gamme
+          quality: 0.3, // Image légère = pas de crash
         })
       : ImagePicker.launchImageLibraryAsync({
           allowsEditing: true,
           aspect: [1, 1],
-          quality: 0.7,
+          quality: 0.3,
         })
     );
 
@@ -187,47 +187,25 @@ export default function ProfileScreen() {
       setLoading(true);
       try {
         const photo = result.assets[0];
-
-        // ✅ 1. COMPRESSION NATIVE (Empêche le crash sur Android)
-        const manipulated = await ImageManipulator.manipulateAsync(
-          photo.uri,
-          [{ resize: { width: 500, height: 500 } }],
-          { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
-        );
-
-        // ✅ 2. CONVERSION BINAIRE (Beaucoup plus robuste que FormData)
-        const response = await fetch(manipulated.uri);
-        const blob = await response.blob();
-        const arrayBuffer = await new Response(blob).arrayBuffer();
-
-        const fileName = `avatar-${profile.id}-${Date.now()}.jpg`;
-
-        // ✅ 3. UPLOAD STORAGE
-        const { error: uploadError } = await supabase.storage
-          .from('avatars')
-          .upload(fileName, arrayBuffer, {
-            contentType: 'image/jpeg',
-            upsert: true
-          });
-
-        if (uploadError) throw uploadError;
-
-        // ✅ 4. MISE À JOUR BASE DE DONNÉES (Persistance garantie)
-        const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+        const ext = photo.uri.split('.').pop();
+        const fileName = `avatar-${profile.id}-${Date.now()}.${ext}`;
         
-        const { error: updateError } = await supabase
-          .from('profiles')
-          .update({ avatar_url: publicUrl })
-          .eq('id', profile.id);
-
-        if (updateError) throw updateError;
-
-        setProfile({ ...profile, avatar_url: publicUrl });
-        Alert.alert("DIOMY", "Votre photo a été mise à jour !");
+        const formData = new FormData();
+        formData.append('file', { uri: photo.uri, name: fileName, type: `image/${ext}` } as any);
         
+        const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, formData as any);
+        
+        if (!uploadError) {
+          const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
+          await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id);
+          setProfile({ ...profile, avatar_url: publicUrl });
+          Alert.alert("Succès", "Votre photo a été mise à jour !");
+        } else {
+          throw uploadError;
+        }
       } catch (err) { 
-        console.error("Détail upload:", err);
-        Alert.alert("Erreur", "La sauvegarde de la photo a échoué.");
+        console.error(err);
+        Alert.alert("Erreur", "Le téléchargement de la photo a échoué.");
       } finally { 
         setLoading(false); 
       }
@@ -281,6 +259,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
+        {/* ✅ Section Espace Conducteur Dynamique */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Espace Conducteur</Text>
           <TouchableOpacity 
