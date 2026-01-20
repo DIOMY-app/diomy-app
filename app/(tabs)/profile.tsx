@@ -30,23 +30,26 @@ export default function ProfileScreen() {
   const router = useRouter();
 
   useEffect(() => {
-    fetchData();
-    const channel = supabase
-      .channel('profile-sync')
-      .on('postgres_changes', { 
-        event: 'UPDATE', 
-        schema: 'public', 
-        table: 'profiles'
-      }, (payload) => {
-        // ✅ Sécurité : on ne refresh que si c'est bien l'utilisateur actuel
-        if (profile?.id && payload.new.id === profile.id && !loading) {
-          fetchData();
-        }
-      })
-      .subscribe();
+  fetchData();
+}, []);
 
-    return () => { supabase.removeChannel(channel); };
-  }, [profile?.id]);
+useEffect(() => {
+  if (!profile?.id) return;
+  
+  const channel = supabase
+    .channel('profile-sync')
+    .on('postgres_changes', { 
+      event: 'UPDATE', 
+      schema: 'public', 
+      table: 'profiles',
+      filter: `id=eq.${profile.id}`
+    }, () => {
+      fetchData();
+    })
+    .subscribe();
+
+  return () => { supabase.removeChannel(channel); };
+}, [profile?.id]);
 
   async function fetchData() {
     try {
