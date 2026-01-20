@@ -9,7 +9,6 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { decode } from 'base64-arraybuffer';
-// Correction ici : on utilise le chemin legacy comme demandé par l'erreur
 import * as FileSystem from 'expo-file-system/legacy';
 
 export default function BecomeDriverScreen() {
@@ -25,10 +24,38 @@ export default function BecomeDriverScreen() {
     face: null as string | null,
   });
 
-  const pickImage = async (type: keyof typeof images) => {
+  // ✅ FONCTION AMÉLIORÉE : Choix Galerie ou Appareil Photo
+  const handleImageChoice = (type: keyof typeof images) => {
+    Alert.alert(
+      "Source de l'image",
+      "Choisissez comment ajouter la photo",
+      [
+        { text: "Appareil Photo", onPress: () => captureImage(type) },
+        { text: "Galerie Photos", onPress: () => pickFromLibrary(type) },
+        { text: "Annuler", style: "cancel" }
+      ]
+    );
+  };
+
+  const captureImage = async (type: keyof typeof images) => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status !== 'granted') {
+      Alert.alert("Permission", "Accès à l'appareil photo requis.");
+      return;
+    }
+    const result = await ImagePicker.launchCameraAsync({
+      allowsEditing: true,
+      quality: 0.3,
+    });
+    if (!result.canceled) {
+      setImages({ ...images, [type]: result.assets[0].uri });
+    }
+  };
+
+  const pickFromLibrary = async (type: keyof typeof images) => {
     const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (status !== 'granted') {
-      Alert.alert("Permission", "Accès aux photos requis pour valider votre compte.");
+      Alert.alert("Permission", "Accès aux photos requis.");
       return;
     }
     const result = await ImagePicker.launchImageLibraryAsync({
@@ -43,12 +70,11 @@ export default function BecomeDriverScreen() {
 
   async function uploadImage(uri: string, path: string) {
     try {
-      // Utilisation de l'API legacy pour lire le fichier en base64
       const base64 = await FileSystem.readAsStringAsync(uri, { 
         encoding: "base64" as any 
       });
       
-      const { data, error } = await supabase.storage
+      const { error } = await supabase.storage
         .from('driver-documents')
         .upload(path, decode(base64), { 
           contentType: 'image/jpeg', 
@@ -64,13 +90,14 @@ export default function BecomeDriverScreen() {
       return urlData.publicUrl;
     } catch (err) {
       console.error("Détail Erreur Upload:", err);
-      throw err;
+      return null; // ✅ On retourne null au lieu de bloquer si une image échoue
     }
   }
 
   async function handleSubmit() {
-    if (!vehicle.brand || !vehicle.plate || !images.cni || !images.moto || !images.assurance || !images.face) {
-      Alert.alert("Dossier incomplet", "Veuillez fournir toutes les informations et les 4 photos.");
+    // ✅ RESTRICTION RETIRÉE : On demande juste une marque ou plaque minimum pour identifier le dossier
+    if (!vehicle.brand && !vehicle.plate) {
+      Alert.alert("Attention", "Veuillez au moins renseigner la marque ou la plaque.");
       return;
     }
 
@@ -79,25 +106,25 @@ export default function BecomeDriverScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) throw new Error("Utilisateur non trouvé");
 
-      // Upload des images
-      const cniUrl = await uploadImage(images.cni!, `${user.id}/cni.jpg`);
-      const motoUrl = await uploadImage(images.moto!, `${user.id}/moto.jpg`);
-      const assuranceUrl = await uploadImage(images.assurance!, `${user.id}/assurance.jpg`);
-      const faceUrl = await uploadImage(images.face!, `${user.id}/face.jpg`);
+      // Upload des images (si elles existent)
+      const cniUrl = images.cni ? await uploadImage(images.cni, `${user.id}/cni.jpg`) : null;
+      const motoUrl = images.moto ? await uploadImage(images.moto, `${user.id}/moto.jpg`) : null;
+      const assuranceUrl = images.assurance ? await uploadImage(images.assurance, `${user.id}/assurance.jpg`) : null;
+      const faceUrl = images.face ? await uploadImage(images.face, `${user.id}/face.jpg`) : null;
 
-      // Mise à jour du profil
+      // Mise à jour du profil (les champs peuvent être null)
       const { error } = await supabase
         .from('profiles')
         .update({
           vehicle_details: { 
-            brand: vehicle.brand,
-            plate: vehicle.plate,
+            brand: vehicle.brand || "Non précisé",
+            plate: vehicle.plate || "Non précisé",
             cni_url: cniUrl, 
             moto_url: motoUrl, 
             assurance_url: assuranceUrl, 
             face_url: faceUrl 
           },
-          status: 'en_attente_validation',
+          status: 'en_attente_validation', // ✅ Status qui sera vérifié par la page profil
           is_driver_pending: true,
           document_submitted_at: new Date().toISOString(),
         })
@@ -107,12 +134,11 @@ export default function BecomeDriverScreen() {
 
       Alert.alert(
         "Dossier Transmis", 
-        "DIOMY a bien reçu vos documents. Nos équipes vont les vérifier rapidement.",
+        "DIOMY a bien reçu votre dossier. Nos équipes vont vérifier vos documents.",
         [{ text: "OK", onPress: () => router.replace('/(tabs)/profile' as any) }]
       );
     } catch (error: any) {
-      console.error("Erreur complète lors du submit:", error);
-      Alert.alert("Erreur", "Problème lors de l'envoi. Vérifiez votre connexion internet.");
+      Alert.alert("Erreur", "Problème lors de l'envoi. Veuillez réessayer.");
     } finally {
       setLoading(false);
     }
@@ -121,7 +147,7 @@ export default function BecomeDriverScreen() {
   const ImageBox = ({ label, type, icon }: { label: string, type: keyof typeof images, icon: any }) => (
     <View style={styles.imageBoxContainer}>
       <Text style={styles.imageLabel}>{label}</Text>
-      <TouchableOpacity style={styles.imagePicker} onPress={() => pickImage(type)}>
+      <TouchableOpacity style={styles.imagePicker} onPress={() => handleImageChoice(type)}>
         {images[type] ? (
           <Image source={{ uri: images[type]! }} style={styles.preview} />
         ) : (
@@ -147,19 +173,19 @@ export default function BecomeDriverScreen() {
         <Text style={styles.sectionTitle}>Votre Véhicule</Text>
         <TextInput 
           style={styles.input} 
-          placeholder="Marque et Modèle (ex: Yamaha Royal)" 
+          placeholder="Marque et Modèle (Optionnel)" 
           value={vehicle.brand} 
           onChangeText={(t) => setVehicle({...vehicle, brand: t})} 
         />
         <TextInput 
           style={styles.input} 
-          placeholder="Plaque d'immatriculation" 
+          placeholder="Plaque d'immatriculation (Optionnel)" 
           value={vehicle.plate} 
           autoCapitalize="characters" 
           onChangeText={(t) => setVehicle({...vehicle, plate: t})} 
         />
 
-        <Text style={styles.sectionTitle}>Photos des documents</Text>
+        <Text style={styles.sectionTitle}>Photos des documents (Même partiel)</Text>
         <View style={styles.grid}>
           <ImageBox label="Photo CNI" type="cni" icon="card-outline" />
           <ImageBox label="Photo de la Moto" type="moto" icon="bicycle-outline" />
@@ -175,12 +201,12 @@ export default function BecomeDriverScreen() {
           {loading ? (
             <ActivityIndicator color="white" />
           ) : (
-            <Text style={styles.submitText}>Envoyer mon dossier</Text>
+            <Text style={styles.submitText}>Envoyer le dossier</Text>
           )}
         </TouchableOpacity>
         
         <Text style={styles.infoNote}>
-          En envoyant ce dossier, vous certifiez l'exactitude des informations fournies à DIOMY.
+          DIOMY pourra vous recontacter s'il manque des pièces à votre dossier.
         </Text>
       </ScrollView>
     </View>

@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, 
-  Image, ScrollView, RefreshControl, Dimensions, Linking, Platform, Modal, TextInput 
+  Image, ScrollView, RefreshControl, Dimensions, Modal, TextInput 
 } from 'react-native';
 import { supabase } from '../../lib/supabase'; 
 import { useRouter } from 'expo-router';
@@ -96,6 +96,23 @@ export default function ProfileScreen() {
       setRefreshing(false); 
     }
   }
+
+  // ✅ NOUVELLE LOGIQUE : Gestion du clic sur l'espace conducteur
+  const handleDriverSpace = () => {
+    if (!profile) return;
+
+    if (profile.status === 'en_attente_validation') {
+      Alert.alert(
+        "Dossier en cours", 
+        "Votre dossier est en cours d'analyse. Vous recevrez une notification dès que DIOMY aura validé vos documents."
+      );
+    } else if (profile.status === 'valide' && isDriver) {
+      // Si validé, on pourrait ouvrir un dashboard spécifique ou une vue de documents
+      Alert.alert("Compte Actif", "Votre compte conducteur est pleinement opérationnel.");
+    } else {
+      router.push('/become-driver' as any);
+    }
+  };
 
   const handleFavPress = (type: 'home' | 'work') => {
     const fav = favorites.find(f => f.label === type);
@@ -192,7 +209,6 @@ export default function ProfileScreen() {
     <View style={[styles.mainWrapper, { paddingTop: insets.top }]}>
       <ScrollView 
         style={styles.container}
-        // ✅ On maintient un gros padding interne
         contentContainerStyle={{ paddingBottom: 180 }}
         refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => {setRefreshing(true); fetchData();}} />}
       >
@@ -203,14 +219,47 @@ export default function ProfileScreen() {
           <Text style={styles.username}>{profile?.full_name || 'Utilisateur DIOMY'}</Text>
           
           <View style={styles.badgeContainer}>
-            <View style={styles.roleBadge}>
-              <Text style={styles.roleText}>{isDriver ? "CHAUFFEUR DIOMY" : "PASSAGER DIOMY"}</Text>
+            <View style={[
+                styles.roleBadge, 
+                profile?.status === 'en_attente_validation' && { backgroundColor: '#f59e0b' },
+                profile?.status === 'valide' && { backgroundColor: '#16a34a' }
+            ]}>
+              <Text style={styles.roleText}>
+                {profile?.status === 'en_attente_validation' ? "DOSSIER EN ATTENTE" : 
+                 isDriver ? "CHAUFFEUR DIOMY" : "PASSAGER DIOMY"}
+              </Text>
             </View>
             <View style={styles.scoreBadge}>
               <Ionicons name="star" size={12} color="#eab308" />
               <Text style={styles.scoreText}>{profile?.score || 100}</Text>
             </View>
           </View>
+        </View>
+
+        {/* ✅ Espace Conducteur - Visible pour tous mais géré selon le statut */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Espace Conducteur</Text>
+          <TouchableOpacity 
+            style={[styles.infoRow, profile?.status === 'en_attente_validation' && { borderLeftWidth: 4, borderLeftColor: '#f59e0b' }]} 
+            onPress={handleDriverSpace}
+          >
+            <MaterialCommunityIcons name="motorbike" size={24} color="#1e3a8a" />
+            <View style={{ flex: 1, marginLeft: 12 }}>
+                <Text style={styles.infoTextMain}>
+                    {profile?.status === 'en_attente_validation' ? "Dossier transmis" : "Devenir Conducteur"}
+                </Text>
+                <Text style={styles.infoSubText}>
+                    {profile?.status === 'en_attente_validation' 
+                        ? "Validation par nos équipes en cours..." 
+                        : "Gagnez de l'argent avec votre moto"}
+                </Text>
+            </View>
+            <Ionicons 
+                name={profile?.status === 'en_attente_validation' ? "time" : "chevron-forward"} 
+                size={20} 
+                color="#cbd5e1" 
+            />
+          </TouchableOpacity>
         </View>
 
         {isDriver && soldeInfo && (
@@ -285,7 +334,6 @@ export default function ProfileScreen() {
           <Text style={styles.signOutText}>Déconnexion</Text>
         </TouchableOpacity>
 
-        {/* ✅ AJOUT D'UNE VUE VIDE FINALE POUR FORCER LE BOUTON À PASSER LA BARRE */}
         <View style={{ height: 100 }} />
       </ScrollView>
 
@@ -327,6 +375,8 @@ const styles = StyleSheet.create({
   infoRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 15, marginBottom: 8, elevation: 1 },
   favRow: { flexDirection: 'row', alignItems: 'center', backgroundColor: '#fff', padding: 15, borderRadius: 15, marginBottom: 8, borderStyle: 'dashed', borderWidth: 1, borderColor: '#cbd5e1' },
   infoText: { flex: 1, marginLeft: 12, color: '#334155', fontSize: 14 },
+  infoTextMain: { fontSize: 15, fontWeight: 'bold', color: '#1e293b' },
+  infoSubText: { fontSize: 12, color: '#94a3b8', marginTop: 2 },
   financeContainer: { marginBottom: 25 },
   financeCard: { backgroundColor: '#fff', borderRadius: 20, padding: 20, flexDirection: 'row', elevation: 4 },
   statBox: { flex: 1, alignItems: 'center' },
