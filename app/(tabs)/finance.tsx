@@ -10,7 +10,7 @@ import {
   Alert,
   Modal,
   TextInput,
-  Clipboard, // ✅ Retour à l'import natif pour supprimer l'erreur module
+  Clipboard, 
   Platform,
 } from 'react-native';
 import { supabase } from '../../lib/supabase';
@@ -23,13 +23,13 @@ export default function FinanceScreen() {
   const [rechargesHistory, setRechargesHistory] = useState<any[]>([]);
   const [soldeRecharge, setSoldeRecharge] = useState(0); 
   const [activeTab, setActiveTab] = useState<'courses' | 'depots'>('courses');
+  const [driverStatus, setDriverStatus] = useState<string>('pending'); // ✅ Nouvel état pour le statut
 
   const [showRechargeModal, setShowRechargeModal] = useState(false);
   const [amount, setAmount] = useState('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [isSuccess, setIsSuccess] = useState(false); 
 
-  // États mis à jour pour inclure le nombre de trajets
   const [stats, setStats] = useState({
     totalEarnings: 0,
     todayEarnings: 0,
@@ -42,6 +42,7 @@ export default function FinanceScreen() {
   });
 
   const COMMISSION_RATE = 0.20;
+  const isNotValidated = driverStatus !== 'validated'; // ✅ Règle de gestion
 
   const NUMEROS_COLLECTE = {
     orange: "07 00 00 00 00",
@@ -75,6 +76,17 @@ export default function FinanceScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
+      // 0. RÉCUPÉRATION DU STATUT DU CHAUFFEUR (AJOUTÉ)
+      const { data: driverData } = await supabase
+        .from('chauffeurs')
+        .select('status')
+        .eq('id', user.id)
+        .single();
+      
+      if (driverData) {
+        setDriverStatus(driverData.status);
+      }
+
       // 1. APPEL DE LA VUE SQL POUR LE SOLDE NET
       const { data: soldeData } = await supabase
         .from('chauffeur_solde_net')
@@ -94,26 +106,19 @@ export default function FinanceScreen() {
         .eq('status', 'completed');
 
       if (rides) {
-        // --- LOGIQUE DE CALCUL ROBUSTE ---
         const now = new Date();
-        // On crée une chaîne de comparaison YYYY-MM-DD basée sur l'heure locale
         const offset = now.getTimezoneOffset() * 60000;
         const localISOTime = (new Date(now.getTime() - offset)).toISOString().split('T')[0];
-
         const totalBrut = rides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
         
-        // On filtre en comparant simplement les 10 premiers caractères de la date Supabase (YYYY-MM-DD)
         const todayRides = rides.filter(r => {
           const dateSupabase = r.created_at || r.sent_at;
           return dateSupabase && dateSupabase.substring(0, 10) === localISOTime;
         });
-
         const todayBrut = todayRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
           
-        // Semaine (7 derniers jours par simplicité et fiabilité)
         const sevenDaysAgo = new Date();
         sevenDaysAgo.setDate(now.getDate() - 7);
-
         const weekRides = rides.filter(r => new Date(r.created_at || r.sent_at).getTime() >= sevenDaysAgo.getTime());
         const weekBrut = weekRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
 
@@ -128,11 +133,9 @@ export default function FinanceScreen() {
           weekRideCount: weekRides.length,   
         });
 
-        // --- AFFICHAGE LIMITÉ AUX 20 DERNIÈRES ---
         const sortedRides = rides
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .slice(0, 20); 
-        
         setRidesHistory(sortedRides);
       }
 
@@ -157,6 +160,12 @@ export default function FinanceScreen() {
   }
 
   const handleManualRecharge = async () => {
+    // Sécurité supplémentaire si le bouton était forcé
+    if (isNotValidated) {
+      Alert.alert("DIOMY", "Action impossible tant que votre compte n'est pas validé.");
+      return;
+    }
+
     const numAmount = parseInt(amount);
     if (!numAmount || numAmount < 500) {
       Alert.alert("DIOMY", "Le montant minimum est de 500 F.");
@@ -203,17 +212,14 @@ export default function FinanceScreen() {
     fetchFinanceData();
   };
 
-  // ✅ CORRECTION : Formatage qui gère les dates très longues de Supabase
   const formatDate = (dateValue: any) => {
     if (!dateValue) return "Aujourd'hui";
     try {
       const date = new Date(dateValue);
-      // On extrait manuellement pour éviter les erreurs de limites
       const j = String(date.getDate()).padStart(2, '0');
       const m = String(date.getMonth() + 1).padStart(2, '0');
       const h = String(date.getHours()).padStart(2, '0');
       const min = String(date.getMinutes()).padStart(2, '0');
-      
       return `${j}/${m} à ${h}:${min}`;
     } catch (e) {
       return "Date non disponible";
@@ -237,17 +243,30 @@ export default function FinanceScreen() {
           <Text style={styles.headerSub}>Gains et dépôts validés</Text>
         </View>
 
-        <View style={styles.rechargeCard}>
+        {/* ✅ CARTE RECHARGE MODIFIÉE AVEC LOGIQUE DE BLOCAGE */}
+        <View style={[styles.rechargeCard, isNotValidated && styles.rechargeCardDisabled]}>
             <View style={styles.rechargeHeader}>
                 <Text style={styles.rechargeLabel}>SOLDE PRÉPAYÉ DISPONIBLE</Text>
-                <MaterialCommunityIcons name="shield-check" size={20} color="#22c55e" />
+                <MaterialCommunityIcons name={isNotValidated ? "shield-lock" : "shield-check"} size={20} color={isNotValidated ? "#f87171" : "#22c55e"} />
             </View>
-            <Text style={[styles.rechargeValue, soldeRecharge < 500 && { color: '#f87171' }]}>
+            <Text style={[styles.rechargeValue, (soldeRecharge < 500 || isNotValidated) && { color: '#f87171' }]}>
                 {soldeRecharge.toLocaleString()} FCFA
             </Text>
-            <TouchableOpacity style={styles.rechargeBtn} onPress={() => setShowRechargeModal(true)}>
-                <Ionicons name="add-circle" size={20} color="#1e3a8a" />
-                <Text style={styles.rechargeBtnText}>FAIRE UN DÉPÔT</Text>
+            
+            <TouchableOpacity 
+              style={[styles.rechargeBtn, isNotValidated && { opacity: 0.6 }]} 
+              onPress={() => {
+                if (isNotValidated) {
+                  Alert.alert("DIOMY", "Dépôt impossible : Votre compte est en cours de validation.");
+                } else {
+                  setShowRechargeModal(true);
+                }
+              }}
+            >
+                <Ionicons name={isNotValidated ? "lock-closed" : "add-circle"} size={20} color="#1e3a8a" />
+                <Text style={styles.rechargeBtnText}>
+                  {isNotValidated ? "NON VALIDÉ" : "FAIRE UN DÉPÔT"}
+                </Text>
             </TouchableOpacity>
         </View>
 
@@ -386,6 +405,7 @@ const styles = StyleSheet.create({
   headerTitle: { fontSize: 26, fontWeight: 'bold', color: '#1e293b' },
   headerSub: { fontSize: 14, color: '#64748b', marginTop: 4 },
   rechargeCard: { backgroundColor: '#1e3a8a', borderRadius: 24, padding: 25, elevation: 8, alignItems: 'center' },
+  rechargeCardDisabled: { backgroundColor: '#64748b' }, // ✅ Style si non validé
   rechargeHeader: { flexDirection: 'row', alignItems: 'center', gap: 8, marginBottom: 10 },
   rechargeLabel: { color: '#bfdbfe', fontSize: 11, fontWeight: 'bold' },
   rechargeValue: { color: '#fff', fontSize: 36, fontWeight: '900', marginBottom: 20 },
