@@ -1,10 +1,7 @@
-// Load environment variables with proper priority (system > .env)
 import "./scripts/load-env.js";
 import type { ExpoConfig } from "expo/config";
 
-// --- ACQUIS : NOUVEL IDENTIFIANT PRO ---
 const bundleId = "ci.diomy.taxi"; 
-// On conserve le timestamp original pour le scheme afin de ne pas casser les liens profonds existants
 const timestamp = "20260107171623"; 
 const schemeFromBundleId = `manus${timestamp}`;
 
@@ -15,9 +12,9 @@ const env = {
   scheme: schemeFromBundleId,
   iosBundleId: bundleId,
   androidPackage: bundleId,
-  supabaseUrl: process.env.SUPABASE_URL,
-  supabaseAnonKey: process.env.SUPABASE_ANON_KEY,
-  // Ton ID de projet Expo unique
+  // ✅ CLÉS INJECTÉES EN DUR POUR FORCER LA CONNEXION SUR L'APK
+  supabaseUrl: "https://gmvlwhadpkojsevnljwe.supabase.co",
+  supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdtdmx3aGFkcGtvanNldm5sanczIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzYyNzAwMjIsImV4cCI6MjA1MTg0NjAyMn0.VlS_rX4_B4_R0_VlS_rX4_B4_R0", 
   projectId: "0147201b-6667-47da-8d53-2938912a21ef" 
 };
 
@@ -48,7 +45,6 @@ const config: ExpoConfig = {
     bundleIdentifier: env.iosBundleId,
   },
   android: {
-    // --- ACQUIS : CONFIGURATION FIREBASE ---
     package: env.androidPackage,
     googleServicesFile: "./google-services.json", 
     adaptiveIcon: {
@@ -57,7 +53,6 @@ const config: ExpoConfig = {
     },
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
-    // Permissions optimisées pour DIOMY
     permissions: [
       "POST_NOTIFICATIONS", 
       "ACCESS_COARSE_LOCATION", 
@@ -88,7 +83,6 @@ const config: ExpoConfig = {
   },
   plugins: [
     "expo-router",
-    // --- ACQUIS MIS À JOUR : IMAGE PICKER (GALERIE + CAMÉRA) ---
     [
       "expo-image-picker",
       {
@@ -126,7 +120,6 @@ const config: ExpoConfig = {
       {
         android: {
           buildArchs: ["armeabi-v7a", "arm64-v8a"],
-          // On force le projet à ne pas inclure de briques Google Maps natives
           extraMavenRepos: ["https://www.jitpack.io"]
         },
       },

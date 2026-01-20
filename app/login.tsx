@@ -7,6 +7,7 @@ import {
 import { supabase } from '../lib/supabase'; 
 import { useRouter, useLocalSearchParams } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons'; 
+import Constants from 'expo-constants';
 
 export default function AuthScreen() {
   const { role: initialRole } = useLocalSearchParams();
@@ -17,7 +18,6 @@ export default function AuthScreen() {
   const [loading, setLoading] = useState(false);
   const router = useRouter();
 
-  // ✅ ALIGNEMENT STRICT AVEC TA BASE DE DONNÉES
   const dbRole = initialRole === 'chauffeur' ? 'conducteurs' : 'passagers';
   const displayRole = initialRole === 'chauffeur' ? 'Conducteur Moto' : 'Passager';
 
@@ -40,7 +40,6 @@ export default function AuthScreen() {
       const internalId = `${phone}@diomy.local`.toLowerCase();
 
       if (isRegistering) {
-        // 1. Inscription Auth
         const { data, error: signUpError } = await supabase.auth.signUp({
           email: internalId, 
           password: password,
@@ -49,14 +48,9 @@ export default function AuthScreen() {
           }
         });
 
-        if (signUpError) {
-          // ✅ Capture de l'erreur 422 ou autre pour affichage sur APK
-          Alert.alert("Erreur Inscription", signUpError.message);
-          throw signUpError;
-        }
+        if (signUpError) throw signUpError;
 
         if (data.user) {
-          // 2. Création du profil (Table profiles)
           const { error: profileError } = await supabase.from('profiles').upsert({ 
             id: data.user.id, 
             full_name: fullName, 
@@ -65,40 +59,31 @@ export default function AuthScreen() {
             status: dbRole === 'conducteurs' ? 'nouveau' : 'valide',
             updated_at: new Date()
           });
-          
-          if (profileError) {
-            Alert.alert("Erreur Profil", profileError.message);
-            throw profileError;
-          }
+          if (profileError) throw profileError;
 
-          // 3. Insertion dans la table spécifique (conducteurs ou passagers)
           const { error: dbError } = await supabase.from(dbRole).upsert({ 
             id: data.user.id, 
             full_name: fullName, 
             phone: phone 
           });
-          
-          if (dbError) {
-            Alert.alert(`Erreur Table ${dbRole}`, dbError.message);
-            throw dbError;
-          }
+          if (dbError) throw dbError;
         }
         Alert.alert("Succès", "Compte créé ! Connectez-vous.");
         setIsRegistering(false);
       } else {
-        // Connexion
         const { error: signInError } = await supabase.auth.signInWithPassword({ 
           email: internalId, 
           password 
         });
-        
-        if (signInError) {
-          Alert.alert("Erreur Connexion", "Identifiants incorrects ou compte non vérifié.");
-          throw signInError;
-        }
+        if (signInError) throw signInError;
       }
     } catch (error: any) {
-      console.error("Auth Error:", error.message);
+      // ✅ ALERTE DE DEBUG CRITIQUE POUR L'APK
+      const configUrl = Constants.expoConfig?.extra?.supabaseUrl;
+      Alert.alert(
+        "DEBUG DIOMY", 
+        `Erreur: ${error.message}\nURL Config: ${configUrl ? 'OUI' : 'NON'}`
+      );
     } finally { 
       setLoading(false); 
     }
