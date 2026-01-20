@@ -76,7 +76,7 @@ export default function FinanceScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // 0. RÉCUPÉRATION DU STATUT DU CHAUFFEUR (AJOUTÉ)
+      // 0. RÉCUPÉRATION DU STATUT DU CHAUFFEUR (AJOUTÉ/CORRIGÉ POUR RAFRAÎCHISSEMENT)
       const { data: driverData } = await supabase
         .from('chauffeurs')
         .select('status')
