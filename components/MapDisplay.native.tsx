@@ -89,12 +89,42 @@ export default function MapDisplay({
 
   const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
 
-  // ✅ AMÉLIORATION VOCALIA : Stop les paroles précédentes pour éviter les lags
+  // ✅ VOCALIA INSTANTANÉ : Priorité à la parole sur le réseau
   const speak = async (text: string) => {
     try {
       await Speech.stop();
-      Speech.speak(text, { language: 'fr', pitch: 1, rate: 0.9 });
-    } catch (e) { console.error("Erreur Speech:", e); }
+      Speech.speak(text, { language: 'fr', pitch: 1, rate: 0.95 });
+    } catch (e) { console.error("Speech error:", e); }
+  };
+
+  // ✅ ACTION BOUTON RAPIDE : On parle d'abord, on synchronise après
+  const handleToggleOnline = async () => {
+    if (!canGoOnline) {
+      Alert.alert("DIOMY", "Votre dossier est en cours d'analyse.");
+      return;
+    }
+    
+    const { data: soldeData } = await supabase.from('chauffeur_solde_net').select('solde_disponible').eq('driver_id', userId).maybeSingle();
+    if (!isOnline && (soldeData?.solde_disponible || 0) < 50) { 
+      Alert.alert("DIOMY", "Solde insuffisant."); 
+      return; 
+    }
+
+    const nextStatus = !isOnline;
+    
+    // 1. Retour vocal et visuel immédiat
+    speak(nextStatus ? "Vous êtes en ligne." : "Vous êtes déconnecté.");
+    setIsOnline(nextStatus);
+
+    // 2. Mise à jour Supabase en arrière-plan
+    try {
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      await supabase.from('conducteurs').upsert({ 
+        id: userId, 
+        is_online: nextStatus, 
+        location: `POINT(${loc.coords.longitude} ${loc.coords.latitude})` 
+      });
+    } catch (err) { console.error("Sync error:", err); }
   };
 
   useEffect(() => {
@@ -135,18 +165,17 @@ export default function MapDisplay({
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
     
-    // ✅ CORRECTIF POINT BLEU IMMÉDIAT
-    try {
-      const initialPos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const startCoords = { lat: initialPos.coords.latitude, lon: initialPos.coords.longitude };
-      setPickupLocation(startCoords);
-      webviewRef.current?.postMessage(JSON.stringify({ 
-          type: 'points', 
-          p: startCoords, 
-          d: selectedLocation || startCoords,
-          isNavigating: rideStatus === 'in_progress' || rideStatus === 'accepted'
-      }));
-    } catch (e) { console.warn("Erreur position initiale", e); }
+    // ✅ FORCE POINT BLEU INITIAL
+    const locInitial = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+    const currentPos = { lat: locInitial.coords.latitude, lon: locInitial.coords.longitude };
+    setPickupLocation(currentPos);
+    
+    // Envoi immédiat à la carte
+    webviewRef.current?.postMessage(JSON.stringify({ 
+        type: 'points', 
+        p: currentPos, 
+        d: selectedLocation || currentPos 
+    }));
 
     await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 5 },
@@ -310,7 +339,7 @@ export default function MapDisplay({
         setUserScore(prof?.score ?? 100);
         if (cond) setIsOnline(cond.is_online);
         
-        // ✅ PRÉCHAUFFAGE VOCALIA : Pour supprimer le lag de 20s au début
+        // ✅ RÉVEIL VOCALIA : On force le chargement du moteur
         Speech.speak("", { language: 'fr' });
 
         setIsMapReady(true);
@@ -371,7 +400,7 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}.blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);transition:all 0.4s linear;}.leaflet-control-attribution{display:none !important;}</style></head><body><div id="map"></div><script>
+  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}.blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);transition:all 0.3s linear;}.leaflet-control-attribution{display:none !important;}</style></head><body><div id="map"></div><script>
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
     L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
     var markers={};var routeLayer=null;
@@ -414,7 +443,24 @@ export default function MapDisplay({
   return (
     <View style={styles.container}>
       <View style={StyleSheet.absoluteFill}>
-        <WebView ref={webviewRef} originWhitelist={['*']} source={{ html: mapHtml }} style={{ flex: 1, backgroundColor: 'transparent' }} javaScriptEnabled={true} domStorageEnabled={true} androidLayerType="hardware"
+        <WebView 
+          ref={webviewRef} 
+          originWhitelist={['*']} 
+          source={{ html: mapHtml }} 
+          style={{ flex: 1, backgroundColor: 'transparent' }} 
+          javaScriptEnabled={true} 
+          domStorageEnabled={true} 
+          androidLayerType="hardware"
+          // ✅ FORCE POINT BLEU AU CHARGEMENT DE LA WEBVIEW
+          onLoadEnd={() => {
+            if (pickupLocation) {
+              webviewRef.current?.postMessage(JSON.stringify({ 
+                type: 'points', 
+                p: pickupLocation, 
+                d: selectedLocation || pickupLocation 
+              }));
+            }
+          }}
           onMessage={async (e) => {
             const data = JSON.parse(e.nativeEvent.data);
             if (data.type === 'map_click' && role === 'passager' && !rideStatus) {
@@ -484,19 +530,10 @@ export default function MapDisplay({
                     isOnline ? styles.bgOnline : styles.bgOffline,
                     !canGoOnline && { backgroundColor: '#94a3b8' } 
                   ]} 
-                  onPress={async () => {
-                    if (!canGoOnline) {
-                      Alert.alert("DIOMY", "Votre dossier est en cours d'analyse.");
-                      return;
-                    }
-                    const { data: soldeData } = await supabase.from('chauffeur_solde_net').select('solde_disponible').eq('driver_id', userId).maybeSingle();
-                    if (!isOnline && (soldeData?.solde_disponible || 0) < 50) { Alert.alert("DIOMY", "Solde insuffisant."); return; }
-                    const nextStatus = !isOnline;
-                    const loc = await Location.getCurrentPositionAsync({});
-                    await supabase.from('conducteurs').upsert({ id: userId, is_online: nextStatus, location: `POINT(${loc.coords.longitude} ${loc.coords.latitude})` });
-                    setIsOnline(nextStatus);
-                    speak(nextStatus ? "Vous êtes en ligne." : "Vous êtes déconnecté.");
-                }}><Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text></TouchableOpacity>
+                  onPress={handleToggleOnline} // ✅ UTILISATION DE LA FONCTION RAPIDE
+                >
+                  <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
+                </TouchableOpacity>
               )}
             </View>
           ) : (

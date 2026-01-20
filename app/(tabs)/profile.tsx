@@ -61,8 +61,8 @@ export default function ProfileScreen() {
 
       if (prof) {
         setProfile({ ...prof, email: user.email });
-        const roleClean = prof.role?.toLowerCase().trim();
-        const driverCheck = ['chauffeur', 'conducteur', 'conducteurs'].includes(roleClean);
+        const roleClean = (prof.role || "").toLowerCase().trim();
+        const driverCheck = ['chauffeur', 'conducteur', 'conducteurs', 'driver'].includes(roleClean);
         setIsDriver(driverCheck);
         
         if (driverCheck) {
@@ -106,7 +106,6 @@ export default function ProfileScreen() {
         "Votre dossier est en cours d'analyse. Vous recevrez une notification dès que DIOMY aura validé vos documents."
       );
     } else if ((profile.status === 'valide' || profile.status === 'validated') && isDriver) {
-      // ✅ Acquis préservé : Message positif pour les chauffeurs déjà actifs
       Alert.alert("Compte Actif", "Votre espace conducteur est pleinement opérationnel.");
     } else {
       router.push('/become-driver' as any);
@@ -165,26 +164,51 @@ export default function ProfileScreen() {
     const permission = useCamera 
       ? await ImagePicker.requestCameraPermissionsAsync()
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (permission.status !== 'granted') { Alert.alert("Erreur", "Permission refusée"); return; }
-    const result = useCamera 
-      ? await ImagePicker.launchCameraAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.5 })
-      : await ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.5 });
+    
+    if (permission.status !== 'granted') { 
+      Alert.alert("Erreur", "Permission refusée. Vous devez autoriser l'accès pour changer votre photo."); 
+      return; 
+    }
+
+    // ✅ OPTIMISATION MÉMOIRE : On baisse la qualité pour éviter le crash (Android RAM management)
+    const result = await (useCamera 
+      ? ImagePicker.launchCameraAsync({
+          allowsEditing: false, // Plus stable sur Android bas de gamme
+          quality: 0.3, // Image légère = pas de crash
+        })
+      : ImagePicker.launchImageLibraryAsync({
+          allowsEditing: true,
+          aspect: [1, 1],
+          quality: 0.3,
+        })
+    );
+
     if (result && !result.canceled) {
       setLoading(true);
       try {
         const photo = result.assets[0];
         const ext = photo.uri.split('.').pop();
-        const fileName = `${profile.id}-${Date.now()}.${ext}`;
+        const fileName = `avatar-${profile.id}-${Date.now()}.${ext}`;
+        
         const formData = new FormData();
         formData.append('file', { uri: photo.uri, name: fileName, type: `image/${ext}` } as any);
+        
         const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, formData as any);
+        
         if (!uploadError) {
           const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
           await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id);
           setProfile({ ...profile, avatar_url: publicUrl });
-          Alert.alert("Succès", "Photo mise à jour");
+          Alert.alert("Succès", "Votre photo a été mise à jour !");
+        } else {
+          throw uploadError;
         }
-      } catch (err) { console.error(err); } finally { setLoading(false); }
+      } catch (err) { 
+        console.error(err);
+        Alert.alert("Erreur", "Le téléchargement de la photo a échoué.");
+      } finally { 
+        setLoading(false); 
+      }
     }
   };
 
@@ -235,7 +259,7 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ✅ Espace Conducteur - Dynamique : Change si déjà chauffeur */}
+        {/* ✅ Section Espace Conducteur Dynamique */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Espace Conducteur</Text>
           <TouchableOpacity 
