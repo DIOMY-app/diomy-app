@@ -3,7 +3,7 @@ import type { ExpoConfig } from "expo/config";
 
 const bundleId = "ci.diomy.taxi"; 
 const timestamp = "20260107171623"; 
-const schemeFromBundleId = `manus${timestamp}`;
+const schemeFromBundleId = `diomy${timestamp}`;
 
 const env = {
   appName: "DIOMY",
@@ -12,10 +12,10 @@ const env = {
   scheme: schemeFromBundleId,
   iosBundleId: bundleId,
   androidPackage: bundleId,
-  // ✅ CLÉS INJECTÉES EN DUR POUR FORCER LA CONNEXION SUR L'APK
   supabaseUrl: "https://gmvlwhadpkojsevnljwe.supabase.co",
   supabaseAnonKey: "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Imdtdmx3aGFkcGtvanNldm5sanczIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzYyNzAwMjIsImV4cCI6MjA1MTg0NjAyMn0.VlS_rX4_B4_R0_VlS_rX4_B4_R0", 
-  projectId: "0147201b-6667-47da-8d53-2938912a21ef" 
+  // ✅ NOUVEL ID DE PROJET GÉNÉRÉ
+  projectId: "89551eb6-93ef-43b2-9854-d4b92b09b1f4" 
 };
 
 const config: ExpoConfig = {

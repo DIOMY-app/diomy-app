@@ -21,6 +21,18 @@ export default function AuthScreen() {
   const dbRole = initialRole === 'chauffeur' ? 'conducteurs' : 'passagers';
   const displayRole = initialRole === 'chauffeur' ? 'Conducteur Moto' : 'Passager';
 
+  // Fonction pour vérifier la config en un clic
+  const debugSupabase = () => {
+    const url = Constants.expoConfig?.extra?.supabaseUrl;
+    const key = Constants.expoConfig?.extra?.supabaseAnonKey;
+    Alert.alert(
+      'Debug Configuration',
+      `URL: ${url ? 'OK' : 'VIDE'}\n` +
+      `Clé: ${key ? 'OK' : 'VIDE'}\n` +
+      `Runtime: ${Constants.expoConfig?.runtimeVersion || 'N/A'}`
+    );
+  };
+
   async function handleAuth() {
     if (isRegistering && !fullName) {
       Alert.alert('Erreur', 'Veuillez entrer votre nom complet.');
@@ -51,8 +63,10 @@ export default function AuthScreen() {
         if (signUpError) throw signUpError;
 
         if (data.user) {
+          // ✅ CORRECTION : On remplit 'id' ET 'user_id' pour satisfaire ta base de données
           const { error: profileError } = await supabase.from('profiles').upsert({ 
             id: data.user.id, 
+            user_id: data.user.id, 
             full_name: fullName, 
             role: dbRole, 
             phone_number: phone, 
@@ -76,9 +90,12 @@ export default function AuthScreen() {
           password 
         });
         if (signInError) throw signInError;
+        
+        // Redirection temporaire vers la racine ou une page existante
+        // Modifie "/" par ta page d'accueil réelle si nécessaire
+        router.replace("/" as any);
       }
     } catch (error: any) {
-      // ✅ ALERTE DE DEBUG CRITIQUE POUR L'APK
       const configUrl = Constants.expoConfig?.extra?.supabaseUrl;
       Alert.alert(
         "DEBUG DIOMY", 
@@ -96,6 +113,10 @@ export default function AuthScreen() {
           <View style={styles.header}>
             <TouchableOpacity onPress={() => router.replace("/setup-profile" as any)}>
               <Ionicons name="arrow-back" size={28} color="#1e3a8a" />
+            </TouchableOpacity>
+            {/* Petit bouton de debug discret en haut à droite */}
+            <TouchableOpacity onPress={debugSupabase} style={{ padding: 5 }}>
+                <Ionicons name="bug-outline" size={24} color="#cbd5e1" />
             </TouchableOpacity>
           </View>
 
@@ -170,7 +191,7 @@ export default function AuthScreen() {
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#FFFFFF' },
-  header: { paddingHorizontal: 20, paddingTop: 20 },
+  header: { paddingHorizontal: 20, paddingTop: 20, flexDirection: 'row', justifyContent: 'space-between' },
   content: { flex: 1, paddingHorizontal: 30, paddingTop: 40 },
   title: { fontSize: 32, fontWeight: 'bold', color: '#1e3a8a', marginBottom: 5 },
   subtitle: { fontSize: 18, color: '#64748b', marginBottom: 40 },
