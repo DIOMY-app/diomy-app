@@ -97,7 +97,6 @@ export default function ProfileScreen() {
     }
   }
 
-  // ✅ NOUVELLE LOGIQUE : Gestion du clic sur l'espace conducteur
   const handleDriverSpace = () => {
     if (!profile) return;
 
@@ -106,9 +105,9 @@ export default function ProfileScreen() {
         "Dossier en cours", 
         "Votre dossier est en cours d'analyse. Vous recevrez une notification dès que DIOMY aura validé vos documents."
       );
-    } else if (profile.status === 'valide' && isDriver) {
-      // Si validé, on pourrait ouvrir un dashboard spécifique ou une vue de documents
-      Alert.alert("Compte Actif", "Votre compte conducteur est pleinement opérationnel.");
+    } else if ((profile.status === 'valide' || profile.status === 'validated') && isDriver) {
+      // ✅ Acquis préservé : Message positif pour les chauffeurs déjà actifs
+      Alert.alert("Compte Actif", "Votre espace conducteur est pleinement opérationnel.");
     } else {
       router.push('/become-driver' as any);
     }
@@ -222,7 +221,7 @@ export default function ProfileScreen() {
             <View style={[
                 styles.roleBadge, 
                 profile?.status === 'en_attente_validation' && { backgroundColor: '#f59e0b' },
-                profile?.status === 'valide' && { backgroundColor: '#16a34a' }
+                (profile?.status === 'valide' || profile?.status === 'validated') && { backgroundColor: '#16a34a' }
             ]}>
               <Text style={styles.roleText}>
                 {profile?.status === 'en_attente_validation' ? "DOSSIER EN ATTENTE" : 
@@ -236,22 +235,36 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ✅ Espace Conducteur - Visible pour tous mais géré selon le statut */}
+        {/* ✅ Espace Conducteur - Dynamique : Change si déjà chauffeur */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Espace Conducteur</Text>
           <TouchableOpacity 
-            style={[styles.infoRow, profile?.status === 'en_attente_validation' && { borderLeftWidth: 4, borderLeftColor: '#f59e0b' }]} 
+            style={[
+              styles.infoRow, 
+              profile?.status === 'en_attente_validation' && { borderLeftWidth: 4, borderLeftColor: '#f59e0b' },
+              (profile?.status === 'valide' || profile?.status === 'validated') && { borderLeftWidth: 4, borderLeftColor: '#16a34a' }
+            ]} 
             onPress={handleDriverSpace}
           >
-            <MaterialCommunityIcons name="motorbike" size={24} color="#1e3a8a" />
+            <MaterialCommunityIcons 
+              name={isDriver ? "shield-check" : "motorbike"} 
+              size={24} 
+              color="#1e3a8a" 
+            />
             <View style={{ flex: 1, marginLeft: 12 }}>
                 <Text style={styles.infoTextMain}>
-                    {profile?.status === 'en_attente_validation' ? "Dossier transmis" : "Devenir Conducteur"}
+                    {profile?.status === 'en_attente_validation' 
+                      ? "Dossier transmis" 
+                      : isDriver 
+                        ? "Mon Compte Chauffeur" 
+                        : "Devenir Conducteur"}
                 </Text>
                 <Text style={styles.infoSubText}>
                     {profile?.status === 'en_attente_validation' 
                         ? "Validation par nos équipes en cours..." 
-                        : "Gagnez de l'argent avec votre moto"}
+                        : isDriver 
+                          ? "Votre compte est actif et opérationnel"
+                          : "Gagnez de l'argent avec votre moto"}
                 </Text>
             </View>
             <Ionicons 

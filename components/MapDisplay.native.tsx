@@ -69,7 +69,6 @@ export default function MapDisplay({
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
   const [estimatedDistance, setEstimatedDistance] = useState<string | null>(null);
 
-  // ✅ ÉTATS POUR NAVIGATION INTELLIGENTE ET PRIX ÉQUITABLE
   const [realTraveledDistance, setRealTraveledDistance] = useState(0);
   const lastLocForDistance = useRef<{lat: number, lon: number} | null>(null);
 
@@ -88,11 +87,14 @@ export default function MapDisplay({
 
   const STADIA_API_KEY = "21bfb3bb-affc-4360-8e0f-c2a636e1db34"; 
 
-  // ✅ DÉBLOCAGE FLEXIBLE : Accepte 'valide' ou 'validated' venant de la table profiles
   const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
 
-  const speak = (text: string) => {
-    Speech.speak(text, { language: 'fr', pitch: 1, rate: 0.9 });
+  // ✅ AMÉLIORATION VOCALIA : Stop les paroles précédentes pour éviter les lags
+  const speak = async (text: string) => {
+    try {
+      await Speech.stop();
+      Speech.speak(text, { language: 'fr', pitch: 1, rate: 0.9 });
+    } catch (e) { console.error("Erreur Speech:", e); }
   };
 
   useEffect(() => {
@@ -133,6 +135,19 @@ export default function MapDisplay({
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
     
+    // ✅ CORRECTIF POINT BLEU IMMÉDIAT
+    try {
+      const initialPos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const startCoords = { lat: initialPos.coords.latitude, lon: initialPos.coords.longitude };
+      setPickupLocation(startCoords);
+      webviewRef.current?.postMessage(JSON.stringify({ 
+          type: 'points', 
+          p: startCoords, 
+          d: selectedLocation || startCoords,
+          isNavigating: rideStatus === 'in_progress' || rideStatus === 'accepted'
+      }));
+    } catch (e) { console.warn("Erreur position initiale", e); }
+
     await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 5 },
       (location) => {
@@ -294,6 +309,10 @@ export default function MapDisplay({
         setRole((cond || prof?.role === 'chauffeur') ? "chauffeur" : "passager");
         setUserScore(prof?.score ?? 100);
         if (cond) setIsOnline(cond.is_online);
+        
+        // ✅ PRÉCHAUFFAGE VOCALIA : Pour supprimer le lag de 20s au début
+        Speech.speak("", { language: 'fr' });
+
         setIsMapReady(true);
         setTimeout(getCurrentLocation, 1000);
       } catch (error) { console.error(error); }
@@ -476,7 +495,7 @@ export default function MapDisplay({
                     const loc = await Location.getCurrentPositionAsync({});
                     await supabase.from('conducteurs').upsert({ id: userId, is_online: nextStatus, location: `POINT(${loc.coords.longitude} ${loc.coords.latitude})` });
                     setIsOnline(nextStatus);
-                    speak(nextStatus ? "Vous êtes maintenant en ligne." : "Vous êtes déconnecté.");
+                    speak(nextStatus ? "Vous êtes en ligne." : "Vous êtes déconnecté.");
                 }}><Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text></TouchableOpacity>
               )}
             </View>
@@ -537,7 +556,7 @@ export default function MapDisplay({
           <View style={styles.chatHeader}>
             <TouchableOpacity onPress={() => setShowChat(false)}><Ionicons name="chevron-back" size={28} color="#1e3a8a" /></TouchableOpacity>
             <Text style={styles.chatTitle}>Discussion</Text>
-            <div style={{width: 28}} />
+            <View style={{width: 28}} />
           </View>
           <ScrollView ref={chatScrollRef} style={styles.messagesList} onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}>
             {chatMessages.map((msg, idx) => (
