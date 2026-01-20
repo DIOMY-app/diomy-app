@@ -38,7 +38,8 @@ export default function ProfileScreen() {
         schema: 'public', 
         table: 'profiles'
       }, (payload) => {
-        if (payload.new.id === profile?.id && !loading) {
+        // ✅ Sécurité : on ne refresh que si c'est bien l'utilisateur actuel
+        if (profile?.id && payload.new.id === profile.id && !loading) {
           fetchData();
         }
       })
@@ -167,20 +168,13 @@ export default function ProfileScreen() {
       : await ImagePicker.requestMediaLibraryPermissionsAsync();
     
     if (permission.status !== 'granted') { 
-      Alert.alert("Erreur", "Permission refusée. Vous devez autoriser l'accès pour changer votre photo."); 
+      Alert.alert("Erreur", "Permission refusée."); 
       return; 
     }
 
     const result = await (useCamera 
-      ? ImagePicker.launchCameraAsync({
-          allowsEditing: false, 
-          quality: 0.7, 
-        })
-      : ImagePicker.launchImageLibraryAsync({
-          allowsEditing: true,
-          aspect: [1, 1],
-          quality: 0.7,
-        })
+      ? ImagePicker.launchCameraAsync({ allowsEditing: false, quality: 0.7 })
+      : ImagePicker.launchImageLibraryAsync({ allowsEditing: true, aspect: [1, 1], quality: 0.7 })
     );
 
     if (result && !result.canceled) {
@@ -188,31 +182,26 @@ export default function ProfileScreen() {
       try {
         const photo = result.assets[0];
 
-        // ✅ 1. COMPRESSION NATIVE (Empêche le crash sur Android)
+        // ✅ COMPRESSION NATIVE (Empêche le crash RAM sur Android)
         const manipulated = await ImageManipulator.manipulateAsync(
           photo.uri,
           [{ resize: { width: 500, height: 500 } }],
           { compress: 0.6, format: ImageManipulator.SaveFormat.JPEG }
         );
 
-        // ✅ 2. CONVERSION BINAIRE (Beaucoup plus robuste que FormData)
+        // ✅ CONVERSION BINAIRE POUR SUPABASE
         const response = await fetch(manipulated.uri);
         const blob = await response.blob();
         const arrayBuffer = await new Response(blob).arrayBuffer();
 
         const fileName = `avatar-${profile.id}-${Date.now()}.jpg`;
 
-        // ✅ 3. UPLOAD STORAGE
         const { error: uploadError } = await supabase.storage
           .from('avatars')
-          .upload(fileName, arrayBuffer, {
-            contentType: 'image/jpeg',
-            upsert: true
-          });
+          .upload(fileName, arrayBuffer, { contentType: 'image/jpeg', upsert: true });
 
         if (uploadError) throw uploadError;
 
-        // ✅ 4. MISE À JOUR BASE DE DONNÉES (Persistance garantie)
         const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
         
         const { error: updateError } = await supabase
@@ -226,7 +215,7 @@ export default function ProfileScreen() {
         Alert.alert("DIOMY", "Votre photo a été mise à jour !");
         
       } catch (err) { 
-        console.error("Détail upload:", err);
+        console.error("Erreur upload:", err);
         Alert.alert("Erreur", "La sauvegarde de la photo a échoué.");
       } finally { 
         setLoading(false); 
