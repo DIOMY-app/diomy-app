@@ -48,12 +48,12 @@ export default function Index() {
         ].includes(roleClean);
 
         if (isDriver) {
-          if (statusClean === 'valide') {
-            console.log("DIOMY DEBUG - Conducteur validé -> Accès Carte");
+          // ✅ MODIFICATION ICI : On autorise l'accès à la carte si validé OU en attente
+          if (statusClean === 'valide' || statusClean === 'en_attente_validation') {
+            console.log("DIOMY DEBUG - Conducteur (Validé ou En Attente) -> Accès Carte");
             setTargetPath("/(tabs)/map");
           } else {
             console.log("DIOMY DEBUG - Conducteur non validé -> Formulaire Documents");
-            // Ici on sort du dossier (tabs) pour aller à la racine de app
             setTargetPath("/become-driver");
           }
         } else {

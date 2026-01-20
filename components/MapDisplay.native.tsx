@@ -9,7 +9,6 @@ import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
-import Constants from 'expo-constants';
 import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router'; 
 
@@ -26,8 +25,10 @@ if (Device.isDevice) {
     });
 }
 
+// ✅ RÈGLE 1 & 2 : Interface synchronisée avec map.tsx
 interface MapDisplayProps {
   userRole?: string | null;
+  userStatus?: string | null; // Ajout du statut de validation
   rideStatus?: string | null; 
   currentRide?: any;
   initialDestination?: {
@@ -39,6 +40,7 @@ interface MapDisplayProps {
 
 export default function MapDisplay({ 
   userRole: initialRole, 
+  userStatus, // Récupération du statut
   rideStatus: propRideStatus, 
   currentRide: propCurrentRide,
   initialDestination 
@@ -65,11 +67,9 @@ export default function MapDisplay({
   const [isMapReady, setIsMapReady] = useState(false); 
   const [partnerInfo, setPartnerInfo] = useState<any>(null);
 
-  // ✅ RÉINTÉGRATION DES ÉTATS MANQUANTS
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
   const [estimatedDistance, setEstimatedDistance] = useState<string | null>(null);
 
-  // ✅ GESTION ATTENTE (Correction du type Timer pour TS)
   const [isWaiting, setIsWaiting] = useState(false);
   const [waitingTime, setWaitingTime] = useState(0); 
   const waitingTimerRef = useRef<any>(null);
@@ -85,7 +85,9 @@ export default function MapDisplay({
 
   const STADIA_API_KEY = "21bfb3bb-affc-4360-8e0f-c2a636e1db34"; 
 
-  // LOGIQUE DU CHRONOMÈTRE D'ATTENTE
+  // ✅ LOGIQUE DE BLOCAGE BASÉE SUR TON STATUT SUPABASE
+  const canGoOnline = userStatus === 'valide';
+
   useEffect(() => {
     if (isWaiting) {
       waitingTimerRef.current = setInterval(() => {
@@ -399,14 +401,26 @@ export default function MapDisplay({
                   </TouchableOpacity>
                 </View>
               ) : (
-                <TouchableOpacity style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline]} onPress={async () => {
-                  const { data: soldeData } = await supabase.from('chauffeur_solde_net').select('solde_disponible').eq('driver_id', userId).maybeSingle();
-                  if (!isOnline && (soldeData?.solde_disponible || 0) < 50) { Alert.alert("DIOMY", "Solde insuffisant."); return; }
-                  const nextStatus = !isOnline;
-                  const loc = await Location.getCurrentPositionAsync({});
-                  await supabase.from('conducteurs').upsert({ id: userId, is_online: nextStatus, location: `POINT(${loc.coords.longitude} ${loc.coords.latitude})` });
-                  setIsOnline(nextStatus);
-                }}><Text style={styles.btnText}>{isOnline ? "EN LIGNE" : "ACTIVER MA MOTO"}</Text></TouchableOpacity>
+                <TouchableOpacity 
+                  style={[
+                    styles.mainBtn, 
+                    isOnline ? styles.bgOnline : styles.bgOffline,
+                    !canGoOnline && { backgroundColor: '#94a3b8' } // ✅ Gris si dossier en attente
+                  ]} 
+                  onPress={async () => {
+                    // ✅ Blocage si dossier en attente
+                    if (!canGoOnline) {
+                      Alert.alert("DIOMY", "Votre dossier est en cours d'analyse. Vous recevrez une notification dès validation.");
+                      return;
+                    }
+
+                    const { data: soldeData } = await supabase.from('chauffeur_solde_net').select('solde_disponible').eq('driver_id', userId).maybeSingle();
+                    if (!isOnline && (soldeData?.solde_disponible || 0) < 50) { Alert.alert("DIOMY", "Solde insuffisant."); return; }
+                    const nextStatus = !isOnline;
+                    const loc = await Location.getCurrentPositionAsync({});
+                    await supabase.from('conducteurs').upsert({ id: userId, is_online: nextStatus, location: `POINT(${loc.coords.longitude} ${loc.coords.latitude})` });
+                    setIsOnline(nextStatus);
+                }}><Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text></TouchableOpacity>
               )}
             </View>
           ) : (

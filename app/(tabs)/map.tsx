@@ -1,6 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { StyleSheet, View, StatusBar, ActivityIndicator } from 'react-native';
-// ✅ CORRECTION DE L'IMPORT : Vérifie bien que le nom du fichier est identique (Majuscule/Minuscule)
+import { StyleSheet, View, StatusBar, ActivityIndicator, Alert } from 'react-native';
 import MapDisplay from '../../components/MapDisplay.native'; 
 import { supabase } from '../../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router';
@@ -8,6 +7,7 @@ import { useRouter, useLocalSearchParams } from 'expo-router';
 export default function MapScreen() {
   const [role, setRole] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [userStatus, setUserStatus] = useState<string | null>(null);
   const router = useRouter();
   const params = useLocalSearchParams();
 
@@ -32,12 +32,21 @@ export default function MapScreen() {
       if (profile) {
         const roleClean = (profile.role || "").toLowerCase().trim();
         const statusClean = (profile.status || "").toLowerCase().trim();
+        setUserStatus(statusClean);
+
         const isDriver = ['chauffeur', 'conducteur', 'conducteurs'].includes(roleClean);
 
         if (isDriver) {
-          if (statusClean === 'valide') {
+          // ✅ MODIFICATION : On autorise l'accès à la carte même en attente
+          if (statusClean === 'valide' || statusClean === 'en_attente_validation') {
             setRole('chauffeur');
+            
+            // Petit message informatif discret la première fois
+            if (statusClean === 'en_attente_validation') {
+              console.log("DIOMY - Chauffeur en attente sur la carte (Mode Consultation)");
+            }
           } else {
+            // Si c'est un nouveau chauffeur sans dossier, direction formulaire
             router.replace("/become-driver" as any);
             return; 
           }
@@ -65,10 +74,10 @@ export default function MapScreen() {
       <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       
       <View style={{ flex: 1 }}>
-        {/* ✅ MapDisplay gère désormais toute la logique temps réel en interne 
-            On lui passe les paramètres de destination s'ils existent (favoris) */}
+        {/* ✅ On passe le status à MapDisplay pour qu'il puisse griser le bouton "En Ligne" */}
         <MapDisplay 
             userRole={role} 
+            userStatus={userStatus} // On ajoute cette prop
             initialDestination={params.address ? {
               address: params.address as string,
               lat: params.lat ? parseFloat(params.lat as string) : undefined,
