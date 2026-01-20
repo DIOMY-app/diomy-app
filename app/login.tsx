@@ -16,6 +16,7 @@ export default function AuthScreen() {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
   const router = useRouter();
 
   const dbRole = initialRole === 'chauffeur' ? 'conducteurs' : 'passagers';
@@ -150,15 +151,25 @@ export default function AuthScreen() {
               </View>
 
               <View style={styles.inputContainer}>
-                <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
-                <TextInput 
-                  style={styles.input} 
-                  placeholder="Mot de passe" 
-                  value={password} 
-                  secureTextEntry 
-                  onChangeText={setPassword} 
-                />
-              </View>
+  <Ionicons name="lock-closed-outline" size={20} color="#94a3b8" style={styles.inputIcon} />
+  <TextInput 
+    style={styles.input} 
+    placeholder="Mot de passe" 
+    value={password} 
+    secureTextEntry={!showPassword} // ✅ On utilise l'état pour masquer ou afficher
+    onChangeText={setPassword} 
+  />
+  <TouchableOpacity 
+    onPress={() => setShowPassword(!showPassword)} 
+    style={{ padding: 10 }}
+  >
+    <Ionicons 
+      name={showPassword ? "eye-outline" : "eye-off-outline"} 
+      size={22} 
+      color="#94a3b8" 
+    />
+  </TouchableOpacity>
+</View>
             </View>
 
             <TouchableOpacity 

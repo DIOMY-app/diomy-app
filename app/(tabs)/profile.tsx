@@ -332,7 +332,7 @@ export default function ProfileScreen() {
               <View style={styles.statBox}>
                 <Text style={styles.statLabel}>Statut Compte</Text>
                 <Text style={[styles.statValue, {color: soldeInfo.solde_disponible > 500 ? '#22c55e' : '#ef4444'}]}>
-                  {soldeInfo.solde_disponible > 500 ? 'ACTIF' : 'BAS'}
+                  {soldeInfo.statut_compte || (soldeInfo.solde_disponible > 500 ? 'ACTIF' : 'BAS')}
                 </Text>
               </View>
             </View>
