@@ -158,31 +158,41 @@ export default function MapDisplay({
     return R * c;
   };
 
-  // ✅ CORRECTIF GPS HAUTE DISPONIBILITÉ (Optimisé pour Korhogo)
+  // ✅ FONCTION D'INJECTION DIRECTE (Plus robuste que postMessage)
+  const injectLocationToMap = (lat: number, lon: number, focus: boolean = false) => {
+    if (!webviewRef.current) return;
+    const js = `
+      if (typeof markers !== 'undefined') {
+        if (markers.p) map.removeLayer(markers.p);
+        markers.p = L.marker([${lat}, ${lon}], {
+          icon: L.divIcon({
+            className: 'blue-dot',
+            iconSize: [20, 20]
+          })
+        }).addTo(map);
+        if (${focus}) {
+          map.setView([${lat}, ${lon}], 17);
+        }
+      }
+      true;
+    `;
+    webviewRef.current.injectJavaScript(js);
+  };
+
   const getCurrentLocation = async (forceFocus = false) => {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert("GPS", "Veuillez autoriser la localisation précise dans les réglages.");
+        Alert.alert("GPS", "Veuillez autoriser la localisation précise.");
         return;
       }
       
-      const loc = await Location.getCurrentPositionAsync({ 
-        accuracy: Location.Accuracy.High,
-      });
-
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
       const currentPos = { lat: loc.coords.latitude, lon: loc.coords.longitude };
       setPickupLocation(currentPos);
       
-      // Envoi forcé à Leaflet (Wait 500ms for WebView ready)
-      setTimeout(() => {
-        webviewRef.current?.postMessage(JSON.stringify({ 
-            type: 'points', 
-            p: currentPos, 
-            d: selectedLocation || currentPos,
-            focus_player: forceFocus || !hasCenteredInitially.current 
-        }));
-      }, 500);
+      // Utilisation de l'injection directe
+      injectLocationToMap(currentPos.lat, currentPos.lon, forceFocus || !hasCenteredInitially.current);
 
       await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.High, distanceInterval: 5 },
@@ -211,13 +221,8 @@ export default function MapDisplay({
           lastLocForDistance.current = currentPos;
           setPickupLocation(currentPos);
 
-          webviewRef.current?.postMessage(JSON.stringify({ 
-              type: 'points', 
-              p: currentPos, 
-              d: selectedLocation || currentPos,
-              isNavigating: rideStatus === 'in_progress' || rideStatus === 'accepted',
-              focus_player: !hasCenteredInitially.current 
-          }));
+          // Mise à jour de la carte par injection
+          injectLocationToMap(latitude, longitude, !hasCenteredInitially.current);
           
           if (!hasCenteredInitially.current) hasCenteredInitially.current = true;
         }
@@ -229,17 +234,12 @@ export default function MapDisplay({
 
   useEffect(() => {
     const heartbeat = setInterval(() => {
-      if (pickupLocation && webviewRef.current) {
-        webviewRef.current.postMessage(JSON.stringify({ 
-            type: 'points', 
-            p: pickupLocation, 
-            d: selectedLocation || pickupLocation,
-            isNavigating: rideStatus === 'in_progress' || rideStatus === 'accepted'
-        }));
+      if (pickupLocation) {
+        injectLocationToMap(pickupLocation.lat, pickupLocation.lon, false);
       }
-    }, 3000);
+    }, 4000);
     return () => clearInterval(heartbeat);
-  }, [pickupLocation, selectedLocation, rideStatus]);
+  }, [pickupLocation]);
 
   useEffect(() => {
     if (role === 'chauffeur' && isOnline) {
@@ -259,11 +259,13 @@ export default function MapDisplay({
       const response = await fetch(url);
       const data = await response.json();
       if (data.routes?.[0]) {
-        webviewRef.current?.postMessage(JSON.stringify({ 
-          type: 'draw_route', 
-          coordinates: data.routes[0].geometry.coordinates,
-          focusDest: true 
-        }));
+        const coords = JSON.stringify(data.routes[0].geometry.coordinates);
+        webviewRef.current?.injectJavaScript(`
+          if(routeLayer) map.removeLayer(routeLayer);
+          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color:'#2563eb', weight:6, opacity:0.8}).addTo(map);
+          map.fitBounds(routeLayer.getBounds().pad(0.3));
+          true;
+        `);
         return data.routes[0];
       }
     } catch (e) { console.error('Erreur OSRM:', e); }
@@ -342,7 +344,13 @@ export default function MapDisplay({
     hasNotifiedArrival.current = false;
     setHasArrivedAtPickup(false);
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
-    webviewRef.current?.postMessage(JSON.stringify({ type: 'reset_map' }));
+    webviewRef.current?.injectJavaScript(`
+      if(markers.p) map.removeLayer(markers.p);
+      if(markers.d) map.removeLayer(markers.d);
+      if(routeLayer) map.removeLayer(routeLayer);
+      map.setView([9.4580,-5.6290],15);
+      true;
+    `);
   };
 
   const submitRating = async () => {
@@ -384,7 +392,7 @@ export default function MapDisplay({
         Speech.speak("", { language: 'fr' });
 
         setIsMapReady(true);
-        setTimeout(() => getCurrentLocation(true), 1000);
+        setTimeout(() => getCurrentLocation(true), 1500);
       } catch (error) { console.error(error); }
     };
     init();
@@ -442,48 +450,12 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}.blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);transition:all 0.3s linear;}.leaflet-control-attribution{display:none !important;}</style></head><body><div id="map"></div><script>
+  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}.blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);}.leaflet-control-attribution{display:none !important;}</style></head><body><div id="map"></div><script>
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
     L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
     var markers={};var routeLayer=null;
-
-    window.addEventListener("message",function(e){
-        var data=JSON.parse(e.data);
-        if(data.type==='draw_route' && data.coordinates){
-            if(routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
-            routeLayer = L.polyline(data.coordinates.map(c => [c[1], c[0]]), {color: '#2563eb', weight: 6, opacity: 0.8, smoothFactor: 1.5}).addTo(map);
-            if(data.focusDest) {
-                map.setView([data.coordinates[data.coordinates.length-1][1], data.coordinates[data.coordinates.length-1][0]], 16);
-            } else {
-                map.fitBounds(routeLayer.getBounds().pad(0.3));
-            }
-        }
-        if(data.type==='points'){
-            if(markers.p) map.removeLayer(markers.p);
-            if(markers.d) map.removeLayer(markers.d);
-            
-            markers.p=L.marker([data.p.lat,data.p.lon],{icon:L.divIcon({className:'blue-dot',iconSize:[20,20]})}).addTo(map);
-            
-            if(data.d&&(data.d.lat!==data.p.lat)) markers.d=L.marker([data.d.lat,data.d.lon]).addTo(map);
-            
-            if(data.focus_player) {
-                map.setView([data.p.lat, data.p.lon], 17);
-            } else if(data.isNavigating) {
-                map.setView([data.p.lat, data.p.lon], 18);
-            } else if(!routeLayer){ 
-                var group=new L.featureGroup(Object.values(markers)); 
-                map.fitBounds(group.getBounds().pad(0.8)); 
-            }
-        }
-        if(data.type==='reset_map'){
-            if(markers.p) map.removeLayer(markers.p);
-            if(markers.d) map.removeLayer(markers.d);
-            if(routeLayer) map.removeLayer(routeLayer);
-            markers={}; routeLayer=null;
-            map.setView([9.4580,-5.6290], 15);
-        }
-    });
-    map.on('click',function(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));});</script></body></html>`;
+    map.on('click',function(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));});
+    </script></body></html>`;
 
   if (!isMapReady) return <View style={styles.loader}><ActivityIndicator size="large" color="#009199" /><Text style={styles.loaderText}>DIOMY...</Text></View>;
 
@@ -499,16 +471,7 @@ export default function MapDisplay({
           domStorageEnabled={true} 
           androidLayerType="hardware"
           onLoadEnd={() => {
-            if (pickupLocation) {
-              webviewRef.current?.postMessage(JSON.stringify({ 
-                type: 'points', 
-                p: pickupLocation, 
-                d: selectedLocation || pickupLocation,
-                focus_player: true 
-              }));
-            } else {
-              getCurrentLocation(true);
-            }
+            if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, true);
           }}
           onMessage={async (e) => {
             const data = JSON.parse(e.nativeEvent.data);
