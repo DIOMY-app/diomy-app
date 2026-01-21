@@ -11,6 +11,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router'; 
+import SwipeButton from 'react-native-swipe-button'; // ✅ Ajouté pour simplification chauffeur
 
 if (Device.isDevice) {
     Notifications.setNotificationHandler({
@@ -293,7 +294,7 @@ export default function MapDisplay({
       setEstimatedDistance((r.distance/1000).toFixed(1));
       setEstimatedPrice(Math.ceil((250 + (r.distance/1000 > 1.5 ? (r.distance/1000 - 1.5) * 100 : 0)) / 50) * 50);
       
-      // ✅ AJOUT : Injection du marqueur Destination + Zoom spécifique
+      // ✅ Injection destination + zoom
       webviewRef.current?.injectJavaScript(`
         if(markers.d) map.removeLayer(markers.d);
         markers.d = L.marker([${lat}, ${lon}]).addTo(map);
@@ -444,44 +445,21 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  // ✅ HTML DE LA CARTE AVEC RÉTABLISSEMENT DES ÉTIQUETTES BLEUES
+  // ✅ HTML DE LA CARTE (Acquis préservé)
   const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
       body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
       .blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);}
-      /* ✅ STYLE DES ÉTIQUETTES BLEUES KORHOGO */
       .korhogo-label{background:transparent;border:none;box-shadow:none;color:#1e3a8a;font-weight:bold;text-shadow:0 0 5px white, 0 0 10px white;font-size:12px;white-space:nowrap;text-align:center;}
     </style></head><body><div id="map"></div><script>
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
     L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
     var markers={};var routeLayer=null;
-    
-    // ✅ RÉTABLISSEMENT DES ÉTIQUETTES BLEUES (TEXTE SEUL)
-    var spots = [
-      {n: "Université Peleforo GC", c: [9.4411, -5.6264]},
-      {n: "Hôpital CHR", c: [9.4542, -5.6288]},
-      {n: "Grand Marché", c: [9.4585, -5.6315]},
-      {n: "Gare Routière", c: [9.4620, -5.6340]},
-      {n: "Aéroport Korhogo", c: [9.3871, -5.5567]}
-    ];
-    spots.forEach(function(s){
-      L.marker(s.c, {
-        icon: L.divIcon({
-          className: 'korhogo-label',
-          html: '<div>'+s.n+'</div>',
-          iconSize: [120, 20],
-          iconAnchor: [60, 10]
-        }),
-        interactive: false
-      }).addTo(map);
-    });
-
+    var spots = [{n: "Université Peleforo GC", c: [9.4411, -5.6264]},{n: "Hôpital CHR", c: [9.4542, -5.6288]},{n: "Grand Marché", c: [9.4585, -5.6315]},{n: "Gare Routière", c: [9.4620, -5.6340]},{n: "Aéroport Korhogo", c: [9.3871, -5.5567]}];
+    spots.forEach(function(s){ L.marker(s.c, { icon: L.divIcon({ className: 'korhogo-label', html: '<div>'+s.n+'</div>', iconSize: [120, 20], iconAnchor: [60, 10] }), interactive: false }).addTo(map); });
     window.addEventListener("message",function(e){
         var data=JSON.parse(e.data);
-        if(data.type==='reset_map'){
-            if(markers.p) map.removeLayer(markers.p); if(markers.d) map.removeLayer(markers.d);
-            if(routeLayer) map.removeLayer(routeLayer); map.setView([9.4580,-5.6290], 15);
-        }
+        if(data.type==='reset_map'){ if(markers.p) map.removeLayer(markers.p); if(markers.d) map.removeLayer(markers.d); if(routeLayer) map.removeLayer(routeLayer); map.setView([9.4580,-5.6290], 15); }
     });
     map.on('click',function(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));});</script></body></html>`;
 
@@ -498,9 +476,7 @@ export default function MapDisplay({
           javaScriptEnabled={true} 
           domStorageEnabled={true} 
           androidLayerType="hardware"
-          onLoadEnd={() => {
-            if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, true);
-          }}
+          onLoadEnd={() => { if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, true); }}
           onMessage={async (e) => {
             const data = JSON.parse(e.nativeEvent.data);
             if (data.type === 'map_click' && role === 'passager' && !rideStatus) {
@@ -545,31 +521,36 @@ export default function MapDisplay({
               {rideStatus === 'accepted' ? (
                 <View style={{ width: '100%' }}>
                   {!hasArrivedAtPickup ? (
-                    <TouchableOpacity style={[styles.mainBtn, {backgroundColor: '#1e3a8a'}]} onPress={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé au passager."); }}>
-                      <Text style={styles.btnText}>JE SUIS ARRIVÉ AU PASSAGER</Text>
-                    </TouchableOpacity>
+                    <SwipeButton
+                      title="GLISSER POUR L'ARRIVÉE"
+                      onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé au passager."); }}
+                      railBackgroundColor="#cbd5e1" railFillBackgroundColor="#1e3a8a" railFillBorderColor="#1e3a8a"
+                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#1e3a8a" titleColor="#1e3a8a" titleFontSize={14}
+                    />
                   ) : (
-                    <TouchableOpacity style={[styles.mainBtn, {backgroundColor: '#f97316'}]} onPress={async () => { await supabase.from('rides_request').update({ status: 'in_progress' }).eq('id', currentRideId); speak("Course débutée."); }}>
-                      <Text style={styles.btnText}>DÉBUTER LA COURSE</Text>
-                    </TouchableOpacity>
+                    <SwipeButton
+                      title="GLISSER POUR DÉBUTER"
+                      onSwipeSuccess={async () => { await supabase.from('rides_request').update({ status: 'in_progress' }).eq('id', currentRideId); speak("Course débutée."); }}
+                      railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316"
+                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}
+                    />
                   )}
                 </View>
               ) : rideStatus === 'in_progress' ? (
                 <View style={{ gap: 10 }}>
-                  <TouchableOpacity style={[styles.mainBtn, {backgroundColor: isWaiting ? '#ef4444' : '#f59e0b'}]} onPress={toggleWaiting}>
+                  <TouchableOpacity style={[styles.mainBtn, {backgroundColor: isWaiting ? '#ef4444' : '#f59e0b', height: 45}]} onPress={toggleWaiting}>
                     <Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text>
                   </TouchableOpacity>
-                  <TouchableOpacity style={[styles.mainBtn, {backgroundColor: '#22c55e'}]} onPress={handleFinalizeRide}>
-                    <Text style={styles.btnText}>TERMINER LA COURSE</Text>
-                  </TouchableOpacity>
+                  <SwipeButton
+                    title="GLISSER POUR TERMINER"
+                    onSwipeSuccess={handleFinalizeRide}
+                    railBackgroundColor="#dcfce7" railFillBackgroundColor="#22c55e" railFillBorderColor="#22c55e"
+                    thumbIconBackgroundColor="#fff" thumbIconBorderColor="#22c55e" titleColor="#22c55e" titleFontSize={14}
+                  />
                 </View>
               ) : (
                 <TouchableOpacity 
-                  style={[
-                    styles.mainBtn, 
-                    isOnline ? styles.bgOnline : styles.bgOffline,
-                    !canGoOnline && { backgroundColor: '#94a3b8' } 
-                  ]} 
+                  style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} 
                   onPress={handleToggleOnline}
                 >
                   <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
@@ -578,7 +559,11 @@ export default function MapDisplay({
             </View>
           ) : (
             <View style={styles.passengerPane}>
-              {!rideStatus && (
+              {rideStatus === 'pending' ? (
+                <View style={styles.statusCard}><ActivityIndicator color="#1e3a8a" /><Text style={styles.statusText}>Recherche d'un chauffeur...</Text></View>
+              ) : (rideStatus === 'accepted' || rideStatus === 'in_progress') ? (
+                <View style={styles.statusCard}><FontAwesome5 name="motorcycle" size={24} color="#1e3a8a" /><Text style={styles.statusText}>{rideStatus === 'accepted' ? "Le chauffeur arrive..." : "Course en cours..."}</Text></View>
+              ) : (
                 <>
                   {suggestions.length > 0 && destination.length > 0 && (
                     <View style={styles.suggestionsContainer}>
@@ -623,7 +608,7 @@ export default function MapDisplay({
           )}
         </View>
       </KeyboardAvoidingView>
-
+      {/* Modals Chat & Résumé inchangés */}
       <Modal visible={showChat} animationType="slide" transparent={false}>
         <View style={styles.chatContainer}>
           <View style={styles.chatHeader}>
