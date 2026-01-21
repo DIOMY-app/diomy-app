@@ -50,7 +50,7 @@ export default function MapDisplay({
 
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
-  const hasNotifiedArrival = useRef(false); // ✅ Ajouté pour l'arrivée auto
+  const hasNotifiedArrival = useRef(false);
 
   const [role, setRole] = useState<string | null>(initialRole || null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -90,7 +90,6 @@ export default function MapDisplay({
 
   const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
 
-  // ✅ CORRECTIF VOCALIA : Priorité et arrêt des files d'attente
   const speak = async (text: string) => {
     try {
       await Speech.stop();
@@ -158,7 +157,6 @@ export default function MapDisplay({
     return R * c;
   };
 
-  // ✅ CORRECTIF POINT BLEU : Tentatives multiples pour synchronisation WebView
   const getCurrentLocation = async () => {
     let { status } = await Location.requestForegroundPermissionsAsync();
     if (status !== 'granted') return;
@@ -174,8 +172,8 @@ export default function MapDisplay({
       } catch (e) { console.log("GPS initial sync..."); }
     };
 
-    await sendPosToMap(); // Tentative 1
-    setTimeout(sendPosToMap, 3000); // Tentative 2 (sécurité chargement WebView)
+    await sendPosToMap();
+    setTimeout(sendPosToMap, 3000);
 
     await Location.watchPositionAsync(
       { accuracy: Location.Accuracy.High, distanceInterval: 5 },
@@ -183,7 +181,6 @@ export default function MapDisplay({
         const { latitude, longitude } = location.coords;
         const currentPos = { lat: latitude, lon: longitude };
 
-        // ✅ CORRECTIF ARRIVÉE AUTOMATIQUE
         if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current && currentRideId) {
             const { data: ride } = await supabase.from('rides_request').select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
             if (ride) {
@@ -313,7 +310,7 @@ export default function MapDisplay({
     setChatMessages([]); setShowChat(false);
     isHandlingModal.current = false;
     lastProcessedRideId.current = null;
-    hasNotifiedArrival.current = false; // Reset sécurité arrivée
+    hasNotifiedArrival.current = false;
     setHasArrivedAtPickup(false);
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
     webviewRef.current?.postMessage(JSON.stringify({ type: 'reset_map' }));
@@ -358,12 +355,10 @@ export default function MapDisplay({
         Speech.speak("", { language: 'fr' });
 
         setIsMapReady(true);
-        setTimeout(getCurrentLocation, 1000);
       } catch (error) { console.error(error); }
     };
     init();
   }, []);
-
   useEffect(() => {
     if (!userId) return;
     const channel = supabase.channel('rides-realtime-secure')
@@ -407,7 +402,7 @@ export default function MapDisplay({
             if (msg.content === "🏁 Je suis arrivé au point de rendez-vous !") {
                 Vibration.vibrate([0, 500, 200, 500]);
                 speak("Votre chauffeur est arrivé.");
-                setHasArrivedAtPickup(true); // Sync status chauffeur/passager
+                setHasArrivedAtPickup(true);
             }
             if (msg.content.includes("⏳")) setIsWaiting(true);
             if (msg.content.includes("✅")) setIsWaiting(false);
@@ -468,13 +463,10 @@ export default function MapDisplay({
           domStorageEnabled={true} 
           androidLayerType="hardware"
           onLoadEnd={() => {
-            if (pickupLocation) {
-              webviewRef.current?.postMessage(JSON.stringify({ 
-                type: 'points', 
-                p: pickupLocation, 
-                d: selectedLocation || pickupLocation 
-              }));
-            }
+            console.log("🗺️ WebView chargée, activation GPS...");
+            setTimeout(() => {
+              getCurrentLocation();
+            }, 500);
           }}
           onMessage={async (e) => {
             const data = JSON.parse(e.nativeEvent.data);

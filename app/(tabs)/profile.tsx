@@ -170,11 +170,10 @@ export default function ProfileScreen() {
       return; 
     }
 
-    // ✅ OPTIMISATION MÉMOIRE : On baisse la qualité pour éviter le crash (Android RAM management)
     const result = await (useCamera 
       ? ImagePicker.launchCameraAsync({
-          allowsEditing: false, // Plus stable sur Android bas de gamme
-          quality: 0.3, // Image légère = pas de crash
+          allowsEditing: false, 
+          quality: 0.3, 
         })
       : ImagePicker.launchImageLibraryAsync({
           allowsEditing: true,
@@ -194,10 +193,11 @@ export default function ProfileScreen() {
         formData.append('file', { uri: photo.uri, name: fileName, type: `image/${ext}` } as any);
         
         const { error: uploadError } = await supabase.storage.from('avatars').upload(fileName, formData as any);
+        
         if (!uploadError) {
           const { data: { publicUrl } } = supabase.storage.from('avatars').getPublicUrl(fileName);
           
-          // ✅ PERSISTANCE : On enregistre l'URL dans la table profiles pour qu'elle reste après déconnexion
+          // ✅ CORRECTION ICI : On enregistre le lien URL dans la base de données
           await supabase.from('profiles').update({ avatar_url: publicUrl }).eq('id', profile.id);
 
           setProfile({ ...profile, avatar_url: publicUrl });
@@ -261,7 +261,6 @@ export default function ProfileScreen() {
           </View>
         </View>
 
-        {/* ✅ Section Espace Conducteur Dynamique */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Espace Conducteur</Text>
           <TouchableOpacity 
