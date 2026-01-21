@@ -13,6 +13,7 @@ import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router'; 
 import SwipeButton from 'react-native-swipe-button'; // ✅ Acquis : Simplification chauffeur
 
+
 // ✅ NOUVEAUX IMPORTS PHASE 2 (Cloisonnement)
 import ServiceSelector from './ServiceSelector';
 import DeliveryForm from './DeliveryForm';
@@ -55,6 +56,7 @@ export default function MapDisplay({
 
   // ✅ ÉTAT DE SÉLECTION DU SERVICE (Phase 2)
   const [activeService, setActiveService] = useState<'transport' | 'delivery' | null>(null);
+  const [showDeliveryForm, setShowDeliveryForm] = useState(false); // ✅ AJOUTÉ pour activer le bouton
 
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
@@ -161,6 +163,7 @@ export default function MapDisplay({
         Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
         speak("Livraison enregistrée. Donnez le code au destinataire.");
         setRideStatus('pending'); // On utilise le statut pending pour bloquer l'interface
+        setShowDeliveryForm(false); // ✅ Ferme le formulaire après validation
       }
     } catch (err) { console.error(err); }
   };
@@ -407,6 +410,7 @@ export default function MapDisplay({
     setHasArrivedAtPickup(false);
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
     setActiveService(null); // ✅ Retour au choix Phase 2
+    setShowDeliveryForm(false); // ✅ RAZ
     webviewRef.current?.injectJavaScript(`
       if(markers.p) map.removeLayer(markers.p);
       if(markers.d) map.removeLayer(markers.d);
@@ -517,6 +521,7 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
+  // ✅ HTML CARTE (Acquis préservé)
   const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
       body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
@@ -565,12 +570,15 @@ export default function MapDisplay({
           
           {/* ✅ PHASE 2 : SÉLECTEUR INITIAL (NOUVEAU) */}
           {role === 'passager' && !activeService && !rideStatus && (
-            <ServiceSelector onSelect={(m) => setActiveService(m)} />
+            <ServiceSelector onSelect={(m) => {
+              setActiveService(m);
+              if (m === 'delivery') setShowDeliveryForm(false); // On attend le choix destination
+            }} />
           )}
 
           {/* ✅ PHASE 2 : FORMULAIRE COLIS (NOUVEAU) */}
-          {activeService === 'delivery' && selectedLocation && !rideStatus && (
-            <DeliveryForm onConfirm={handleDeliveryOrder} onCancel={() => setActiveService(null)} />
+          {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
+            <DeliveryForm onConfirm={handleDeliveryOrder} onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} />
           )}
 
           {/* ✅ IDENTITY CARD (MAINTENU AVEC BOUTON ANNULER) */}
