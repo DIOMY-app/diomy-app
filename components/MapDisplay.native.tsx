@@ -13,6 +13,10 @@ import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router'; 
 import SwipeButton from 'react-native-swipe-button'; // ✅ Acquis : Simplification chauffeur
 
+// ✅ NOUVEAUX IMPORTS PHASE 2 (Cloisonnement)
+import ServiceSelector from './ServiceSelector';
+import DeliveryForm from './DeliveryForm';
+
 if (Device.isDevice) {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
@@ -48,6 +52,9 @@ export default function MapDisplay({
   const webviewRef = useRef<WebView>(null); 
   const router = useRouter();
   const params = useLocalSearchParams();
+
+  // ✅ ÉTAT DE SÉLECTION DU SERVICE (Phase 2)
+  const [activeService, setActiveService] = useState<'transport' | 'delivery' | null>(null);
 
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
@@ -99,7 +106,7 @@ export default function MapDisplay({
     } catch (e) { console.error("Speech error:", e); }
   };
 
-  // ✅ NOUVELLE FONCTION : Gestion de l'annulation
+  // ✅ NOUVELLE FONCTION : Gestion de l'annulation (MAINTENUE)
   const handleCancelRide = async () => {
     if (!currentRideId) return;
 
@@ -132,6 +139,30 @@ export default function MapDisplay({
         }
       ]
     );
+  };
+
+  // ✅ COMMANDE COLIS (Phase 2)
+  const handleDeliveryOrder = async (deliveryData: any) => {
+    const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
+    try {
+      const { data } = await supabase.from('delivery_requests').insert([{
+        sender_id: userId,
+        pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon,
+        delivery_lat: selectedLocation?.lat, delivery_lon: selectedLocation?.lon,
+        recipient_name: deliveryData.recipientName,
+        recipient_phone: deliveryData.recipientPhone,
+        package_type: deliveryData.packageType,
+        verification_code: pinCode,
+        status: 'pending',
+        price: estimatedPrice || 500
+      }]).select().single();
+
+      if (data) {
+        Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
+        speak("Livraison enregistrée. Donnez le code au destinataire.");
+        setRideStatus('pending'); // On utilise le statut pending pour bloquer l'interface
+      }
+    } catch (err) { console.error(err); }
   };
 
   const handleToggleOnline = async () => {
@@ -375,6 +406,7 @@ export default function MapDisplay({
     hasNotifiedArrival.current = false;
     setHasArrivedAtPickup(false);
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
+    setActiveService(null); // ✅ Retour au choix Phase 2
     webviewRef.current?.injectJavaScript(`
       if(markers.p) map.removeLayer(markers.p);
       if(markers.d) map.removeLayer(markers.d);
@@ -441,7 +473,7 @@ export default function MapDisplay({
              if (partnerId) fetchPartnerInfo(partnerId);
              if (role === 'chauffeur') updateDriverNavigation(up.status, up.id);
           }
-          // ✅ Gestion du retour à zéro si l'autre annule
+          // ✅ Gestion du retour à zéro si l'autre annule (MAINTENU)
           if (up.status === 'cancelled') {
              Alert.alert("DIOMY", "La course a été annulée par votre partenaire.");
              speak("Course annulée.");
@@ -485,7 +517,6 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  // ✅ HTML CARTE (Acquis préservé)
   const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
       body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
@@ -531,6 +562,18 @@ export default function MapDisplay({
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
         <View style={styles.overlay}>
+          
+          {/* ✅ PHASE 2 : SÉLECTEUR INITIAL (NOUVEAU) */}
+          {role === 'passager' && !activeService && !rideStatus && (
+            <ServiceSelector onSelect={(m) => setActiveService(m)} />
+          )}
+
+          {/* ✅ PHASE 2 : FORMULAIRE COLIS (NOUVEAU) */}
+          {activeService === 'delivery' && selectedLocation && !rideStatus && (
+            <DeliveryForm onConfirm={handleDeliveryOrder} onCancel={() => setActiveService(null)} />
+          )}
+
+          {/* ✅ IDENTITY CARD (MAINTENU AVEC BOUTON ANNULER) */}
           {(rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'pending') && partnerInfo && (
             <View style={styles.identityCard}>
               <View style={styles.idHeader}>
@@ -541,7 +584,6 @@ export default function MapDisplay({
                   {role === 'passager' && <Text style={styles.idMoto}>🏍️ {partnerInfo.vehicle_model || "Moto Standard"}</Text>}
                 </View>
                 <View style={{flexDirection: 'row', gap: 10}}>
-                  {/* ✅ NOUVEAU : Bouton Annuler */}
                   <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#ef4444'}]} onPress={handleCancelRide}>
                     <Ionicons name="close" size={20} color="#fff" />
                   </TouchableOpacity>
@@ -600,18 +642,7 @@ export default function MapDisplay({
             </View>
           ) : (
             <View style={styles.passengerPane}>
-              {rideStatus === 'pending' ? (
-                <View style={styles.statusCard}>
-                  <ActivityIndicator color="#1e3a8a" />
-                  <Text style={styles.statusText}>Recherche...</Text>
-                  {/* Bouton annulation spécifique quand en attente */}
-                  <TouchableOpacity style={{marginLeft: 'auto', backgroundColor: '#fee2e2', padding: 10, borderRadius: 10}} onPress={handleCancelRide}>
-                    <Ionicons name="trash" size={20} color="#ef4444" />
-                  </TouchableOpacity>
-                </View>
-              ) : (rideStatus === 'accepted' || rideStatus === 'in_progress') ? (
-                <View style={styles.statusCard}><FontAwesome5 name="motorcycle" size={24} color="#1e3a8a" /><Text style={styles.statusText}>{rideStatus === 'accepted' ? "Le chauffeur arrive..." : "Course en cours..."}</Text></View>
-              ) : (
+              {role === 'passager' && activeService === 'transport' && !rideStatus && (
                 <>
                   {suggestions.length > 0 && destination.length > 0 && (
                     <View style={styles.suggestionsContainer}>
@@ -652,12 +683,21 @@ export default function MapDisplay({
                   </View>
                 </>
               )}
+              {rideStatus === 'pending' && (
+                <View style={styles.statusCard}>
+                  <ActivityIndicator color="#1e3a8a" />
+                  <Text style={styles.statusText}>Recherche...</Text>
+                  <TouchableOpacity style={{marginLeft: 'auto', backgroundColor: '#fee2e2', padding: 10, borderRadius: 10}} onPress={handleCancelRide}>
+                    <Ionicons name="trash" size={20} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              )}
             </View>
           )}
         </View>
       </KeyboardAvoidingView>
 
-      {/* Modals inchangés */}
+      {/* Modals Discussion & Résumé (MAINTENUS) */}
       <Modal visible={showChat} animationType="slide" transparent={false}>
         <View style={styles.chatContainer}>
           <View style={styles.chatHeader}>
