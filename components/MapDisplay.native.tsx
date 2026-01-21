@@ -11,7 +11,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router'; 
-import SwipeButton from 'react-native-swipe-button'; // ✅ Ajouté pour simplification chauffeur
+import SwipeButton from 'react-native-swipe-button'; // ✅ Acquis : Simplification chauffeur
 
 if (Device.isDevice) {
     Notifications.setNotificationHandler({
@@ -97,6 +97,41 @@ export default function MapDisplay({
       await Speech.stop();
       Speech.speak(text, { language: 'fr', pitch: 1, rate: 0.95 });
     } catch (e) { console.error("Speech error:", e); }
+  };
+
+  // ✅ NOUVELLE FONCTION : Gestion de l'annulation
+  const handleCancelRide = async () => {
+    if (!currentRideId) return;
+
+    Alert.alert(
+      "Annuler la course",
+      "Voulez-vous vraiment annuler ? (Pénalité de 2 points sur votre score)",
+      [
+        { text: "Non", style: "cancel" },
+        { 
+          text: "Oui, Annuler", 
+          style: "destructive",
+          onPress: async () => {
+            try {
+              // 1. Mise à jour Supabase
+              await supabase.from('rides_request').update({ status: 'cancelled' }).eq('id', currentRideId);
+              
+              // 2. Baisse du score de fiabilité
+              const { data: prof } = await supabase.from('profiles').select('score').eq('id', userId).single();
+              await supabase.from('profiles').update({ score: Math.max(0, (prof?.score || 100) - 2) }).eq('id', userId);
+              
+              // 3. Information partenaire et nettoyage
+              sendMessage("⚠️ La course a été annulée.");
+              speak("Course annulée.");
+              resetSearch();
+              Alert.alert("DIOMY", "Course annulée avec succès.");
+            } catch (err) {
+              console.error("Erreur annulation:", err);
+            }
+          }
+        }
+      ]
+    );
   };
 
   const handleToggleOnline = async () => {
@@ -294,7 +329,6 @@ export default function MapDisplay({
       setEstimatedDistance((r.distance/1000).toFixed(1));
       setEstimatedPrice(Math.ceil((250 + (r.distance/1000 > 1.5 ? (r.distance/1000 - 1.5) * 100 : 0)) / 50) * 50);
       
-      // ✅ Injection destination + zoom
       webviewRef.current?.injectJavaScript(`
         if(markers.d) map.removeLayer(markers.d);
         markers.d = L.marker([${lat}, ${lon}]).addTo(map);
@@ -407,6 +441,12 @@ export default function MapDisplay({
              if (partnerId) fetchPartnerInfo(partnerId);
              if (role === 'chauffeur') updateDriverNavigation(up.status, up.id);
           }
+          // ✅ Gestion du retour à zéro si l'autre annule
+          if (up.status === 'cancelled') {
+             Alert.alert("DIOMY", "La course a été annulée par votre partenaire.");
+             speak("Course annulée.");
+             resetSearch();
+          }
         }
       })
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'rides_request', filter: `status=eq.pending` }, (payload) => {
@@ -445,7 +485,7 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  // ✅ HTML DE LA CARTE (Acquis préservé)
+  // ✅ HTML CARTE (Acquis préservé)
   const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
       body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
@@ -491,7 +531,7 @@ export default function MapDisplay({
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
         <View style={styles.overlay}>
-          {(rideStatus === 'accepted' || rideStatus === 'in_progress') && partnerInfo && (
+          {(rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'pending') && partnerInfo && (
             <View style={styles.identityCard}>
               <View style={styles.idHeader}>
                 <View style={styles.avatarBox}>{partnerInfo.avatar_url ? <Image source={{ uri: partnerInfo.avatar_url }} style={styles.avatarImg} /> : <Ionicons name="person" size={28} color="#94a3b8" />}</View>
@@ -501,6 +541,10 @@ export default function MapDisplay({
                   {role === 'passager' && <Text style={styles.idMoto}>🏍️ {partnerInfo.vehicle_model || "Moto Standard"}</Text>}
                 </View>
                 <View style={{flexDirection: 'row', gap: 10}}>
+                  {/* ✅ NOUVEAU : Bouton Annuler */}
+                  <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#ef4444'}]} onPress={handleCancelRide}>
+                    <Ionicons name="close" size={20} color="#fff" />
+                  </TouchableOpacity>
                   <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#1e3a8a'}]} onPress={() => setShowChat(true)}><Ionicons name="chatbubble-ellipses" size={20} color="#fff" /></TouchableOpacity>
                   <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#22c55e'}]} onPress={() => Linking.openURL(`tel:${partnerInfo.phone_number}`)}><Ionicons name="call" size={20} color="#fff" /></TouchableOpacity>
                 </View>
@@ -549,10 +593,7 @@ export default function MapDisplay({
                   />
                 </View>
               ) : (
-                <TouchableOpacity 
-                  style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} 
-                  onPress={handleToggleOnline}
-                >
+                <TouchableOpacity style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} onPress={handleToggleOnline}>
                   <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
                 </TouchableOpacity>
               )}
@@ -560,7 +601,14 @@ export default function MapDisplay({
           ) : (
             <View style={styles.passengerPane}>
               {rideStatus === 'pending' ? (
-                <View style={styles.statusCard}><ActivityIndicator color="#1e3a8a" /><Text style={styles.statusText}>Recherche d'un chauffeur...</Text></View>
+                <View style={styles.statusCard}>
+                  <ActivityIndicator color="#1e3a8a" />
+                  <Text style={styles.statusText}>Recherche...</Text>
+                  {/* Bouton annulation spécifique quand en attente */}
+                  <TouchableOpacity style={{marginLeft: 'auto', backgroundColor: '#fee2e2', padding: 10, borderRadius: 10}} onPress={handleCancelRide}>
+                    <Ionicons name="trash" size={20} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
               ) : (rideStatus === 'accepted' || rideStatus === 'in_progress') ? (
                 <View style={styles.statusCard}><FontAwesome5 name="motorcycle" size={24} color="#1e3a8a" /><Text style={styles.statusText}>{rideStatus === 'accepted' ? "Le chauffeur arrive..." : "Course en cours..."}</Text></View>
               ) : (
@@ -581,7 +629,7 @@ export default function MapDisplay({
                       const { data: drivers } = await supabase.rpc('find_nearest_driver', { px_lat: pickupLocation?.lat, px_lon: pickupLocation?.lon, max_dist: 1000 });
                       if (drivers?.[0]) {
                         const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon, price: estimatedPrice || 500 }]).select().single();
-                        if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); }
+                        if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
                       } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
                     }}>
                       <View style={styles.priceContainer}>
@@ -608,7 +656,8 @@ export default function MapDisplay({
           )}
         </View>
       </KeyboardAvoidingView>
-      {/* Modals Chat & Résumé inchangés */}
+
+      {/* Modals inchangés */}
       <Modal visible={showChat} animationType="slide" transparent={false}>
         <View style={styles.chatContainer}>
           <View style={styles.chatHeader}>
