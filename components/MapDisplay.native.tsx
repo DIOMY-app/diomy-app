@@ -158,16 +158,15 @@ export default function MapDisplay({
     return R * c;
   };
 
-  // ✅ CORRECTIF GPS HAUTE DISPONIBILITÉ (Inspiré de Claude + Heartbeat)
-  const getCurrentLocation = async () => {
+  // ✅ CORRECTIF GPS HAUTE DISPONIBILITÉ (Optimisé pour Korhogo)
+  const getCurrentLocation = async (forceFocus = false) => {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
       if (status !== 'granted') {
-        Alert.alert("GPS", "Veuillez autoriser la localisation dans les réglages.");
+        Alert.alert("GPS", "Veuillez autoriser la localisation précise dans les réglages.");
         return;
       }
       
-      // 1. Récupération avec timeout pour éviter le blocage
       const loc = await Location.getCurrentPositionAsync({ 
         accuracy: Location.Accuracy.High,
       });
@@ -175,17 +174,16 @@ export default function MapDisplay({
       const currentPos = { lat: loc.coords.latitude, lon: loc.coords.longitude };
       setPickupLocation(currentPos);
       
-      // 2. Petit délai pour laisser la WebView s'initialiser avant l'envoi
+      // Envoi forcé à Leaflet (Wait 500ms for WebView ready)
       setTimeout(() => {
         webviewRef.current?.postMessage(JSON.stringify({ 
             type: 'points', 
             p: currentPos, 
             d: selectedLocation || currentPos,
-            focus_player: true 
+            focus_player: forceFocus || !hasCenteredInitially.current 
         }));
-      }, 800);
+      }, 500);
 
-      // 3. Surveillance continue
       await Location.watchPositionAsync(
         { accuracy: Location.Accuracy.High, distanceInterval: 5 },
         async (location) => {
@@ -386,7 +384,7 @@ export default function MapDisplay({
         Speech.speak("", { language: 'fr' });
 
         setIsMapReady(true);
-        setTimeout(getCurrentLocation, 1000);
+        setTimeout(() => getCurrentLocation(true), 1000);
       } catch (error) { console.error(error); }
     };
     init();
@@ -501,7 +499,6 @@ export default function MapDisplay({
           domStorageEnabled={true} 
           androidLayerType="hardware"
           onLoadEnd={() => {
-            // ✅ FORCE ENVOI GPS À LA FIN DU CHARGEMENT
             if (pickupLocation) {
               webviewRef.current?.postMessage(JSON.stringify({ 
                 type: 'points', 
@@ -510,8 +507,7 @@ export default function MapDisplay({
                 focus_player: true 
               }));
             } else {
-              // Si pas encore de position, on relance la recherche
-              getCurrentLocation();
+              getCurrentLocation(true);
             }
           }}
           onMessage={async (e) => {
@@ -524,7 +520,7 @@ export default function MapDisplay({
         />
       </View>
 
-      <TouchableOpacity style={styles.gpsBtn} onPress={getCurrentLocation}><Ionicons name="locate" size={26} color="#1e3a8a" /></TouchableOpacity>
+      <TouchableOpacity style={styles.gpsBtn} onPress={() => getCurrentLocation(true)}><Ionicons name="locate" size={26} color="#1e3a8a" /></TouchableOpacity>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
         <View style={styles.overlay}>
