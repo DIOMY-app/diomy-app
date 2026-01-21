@@ -158,7 +158,6 @@ export default function MapDisplay({
     return R * c;
   };
 
-  // ✅ INJECTION DIRECTE SÉCURISÉE (Conserve les points de repère et le point bleu)
   const injectLocationToMap = (lat: number, lon: number, focus: boolean = false) => {
     if (!webviewRef.current) return;
     const js = `
@@ -293,6 +292,14 @@ export default function MapDisplay({
     if (r) {
       setEstimatedDistance((r.distance/1000).toFixed(1));
       setEstimatedPrice(Math.ceil((250 + (r.distance/1000 > 1.5 ? (r.distance/1000 - 1.5) * 100 : 0)) / 50) * 50);
+      
+      // ✅ AJOUT : Injection du marqueur Destination + Zoom spécifique
+      webviewRef.current?.injectJavaScript(`
+        if(markers.d) map.removeLayer(markers.d);
+        markers.d = L.marker([${lat}, ${lon}]).addTo(map);
+        map.setView([${lat}, ${lon}], 16);
+        true;
+      `);
     }
   };
 
@@ -437,55 +444,43 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  // ✅ HTML DE LA CARTE AVEC TOUS LES POINTS DE KORHOGO RÉTABLIS
-  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><style>body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}.blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);transition:all 0.3s linear;}.leaflet-control-attribution{display:none !important;}</style></head><body><div id="map"></div><script>
+  // ✅ HTML DE LA CARTE AVEC RÉTABLISSEMENT DES ÉTIQUETTES BLEUES
+  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <style>
+      body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
+      .blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);}
+      /* ✅ STYLE DES ÉTIQUETTES BLEUES KORHOGO */
+      .korhogo-label{background:transparent;border:none;box-shadow:none;color:#1e3a8a;font-weight:bold;text-shadow:0 0 5px white, 0 0 10px white;font-size:12px;white-space:nowrap;text-align:center;}
+    </style></head><body><div id="map"></div><script>
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
     L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
     var markers={};var routeLayer=null;
     
-    // ✅ RÉTABLISSEMENT DES POINTS DE RÉFÉRENCE DE KORHOGO
+    // ✅ RÉTABLISSEMENT DES ÉTIQUETTES BLEUES (TEXTE SEUL)
     var spots = [
-      {n: "Université Peleforo Gon Coulibaly", c: [9.4411, -5.6264]},
-      {n: "Hôpital CHR Korhogo", c: [9.4542, -5.6288]},
-      {n: "Grand Marché de Korhogo", c: [9.4585, -5.6315]},
+      {n: "Université Peleforo GC", c: [9.4411, -5.6264]},
+      {n: "Hôpital CHR", c: [9.4542, -5.6288]},
+      {n: "Grand Marché", c: [9.4585, -5.6315]},
       {n: "Gare Routière", c: [9.4620, -5.6340]},
-      {n: "Aéroport de Korhogo", c: [9.3871, -5.5567]}
+      {n: "Aéroport Korhogo", c: [9.3871, -5.5567]}
     ];
     spots.forEach(function(s){
-      L.marker(s.c).addTo(map).bindPopup("<b>"+s.n+"</b>");
+      L.marker(s.c, {
+        icon: L.divIcon({
+          className: 'korhogo-label',
+          html: '<div>'+s.n+'</div>',
+          iconSize: [120, 20],
+          iconAnchor: [60, 10]
+        }),
+        interactive: false
+      }).addTo(map);
     });
 
     window.addEventListener("message",function(e){
         var data=JSON.parse(e.data);
-        if(data.type==='draw_route' && data.coordinates){
-            if(routeLayer) { map.removeLayer(routeLayer); routeLayer = null; }
-            routeLayer = L.polyline(data.coordinates.map(c => [c[1], c[0]]), {color: '#2563eb', weight: 6, opacity: 0.8, smoothFactor: 1.5}).addTo(map);
-            if(data.focusDest) {
-                map.setView([data.coordinates[data.coordinates.length-1][1], data.coordinates[data.coordinates.length-1][0]], 16);
-            } else {
-                map.fitBounds(routeLayer.getBounds().pad(0.3));
-            }
-        }
-        if(data.type==='points'){
-            if(markers.p) map.removeLayer(markers.p);
-            if(markers.d) map.removeLayer(markers.d);
-            markers.p=L.marker([data.p.lat,data.p.lon],{icon:L.divIcon({className:'blue-dot',iconSize:[20,20]})}).addTo(map);
-            if(data.d&&(data.d.lat!==data.p.lat)) markers.d=L.marker([data.d.lat,data.d.lon]).addTo(map);
-            if(data.focus_player) {
-                map.setView([data.p.lat, data.p.lon], 17);
-            } else if(data.isNavigating) {
-                map.setView([data.p.lat, data.p.lon], 18);
-            } else if(!routeLayer){ 
-                var group=new L.featureGroup(Object.values(markers)); 
-                map.fitBounds(group.getBounds().pad(0.8)); 
-            }
-        }
         if(data.type==='reset_map'){
-            if(markers.p) map.removeLayer(markers.p);
-            if(markers.d) map.removeLayer(markers.d);
-            if(routeLayer) map.removeLayer(routeLayer);
-            markers={}; routeLayer=null;
-            map.setView([9.4580,-5.6290], 15);
+            if(markers.p) map.removeLayer(markers.p); if(markers.d) map.removeLayer(markers.d);
+            if(routeLayer) map.removeLayer(routeLayer); map.setView([9.4580,-5.6290], 15);
         }
     });
     map.on('click',function(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));});</script></body></html>`;
@@ -546,6 +541,7 @@ export default function MapDisplay({
           {role === 'chauffeur' ? (
             <View style={styles.driverPane}>
               {!rideStatus && <View style={styles.scoreBadge}><MaterialCommunityIcons name="star-circle" size={22} color="#eab308" /><Text style={styles.scoreText}>Fiabilité : {userScore}/100</Text></View>}
+              
               {rideStatus === 'accepted' ? (
                 <View style={{ width: '100%' }}>
                   {!hasArrivedAtPickup ? (
@@ -568,18 +564,21 @@ export default function MapDisplay({
                   </TouchableOpacity>
                 </View>
               ) : (
-                <TouchableOpacity style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} onPress={handleToggleOnline}>
+                <TouchableOpacity 
+                  style={[
+                    styles.mainBtn, 
+                    isOnline ? styles.bgOnline : styles.bgOffline,
+                    !canGoOnline && { backgroundColor: '#94a3b8' } 
+                  ]} 
+                  onPress={handleToggleOnline}
+                >
                   <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
                 </TouchableOpacity>
               )}
             </View>
           ) : (
             <View style={styles.passengerPane}>
-              {rideStatus === 'pending' ? (
-                <View style={styles.statusCard}><ActivityIndicator color="#1e3a8a" /><Text style={styles.statusText}>Recherche d'un chauffeur...</Text></View>
-              ) : (rideStatus === 'accepted' || rideStatus === 'in_progress') ? (
-                <View style={styles.statusCard}><FontAwesome5 name="motorcycle" size={24} color="#1e3a8a" /><Text style={styles.statusText}>{rideStatus === 'accepted' ? "Le chauffeur arrive..." : "Course en cours..."}</Text></View>
-              ) : (
+              {!rideStatus && (
                 <>
                   {suggestions.length > 0 && destination.length > 0 && (
                     <View style={styles.suggestionsContainer}>
@@ -652,21 +651,8 @@ export default function MapDisplay({
             <Ionicons name="checkmark-circle" size={60} color="#22c55e" />
             <Text style={styles.modalTitle}>Course Terminée</Text>
             <Text style={styles.priceSummary}>{finalRideData?.price} FCFA</Text>
-            {finalRideData?.waitingCharge > 0 && (
-              <Text style={{ color: '#f59e0b', fontWeight: 'bold', marginBottom: 10 }}>(dont {finalRideData?.waitingCharge} FCFA d'attente)</Text>
-            )}
-            <View style={{ width: '100%', alignItems: 'center', marginVertical: 15 }}>
-              <Text style={{ color: '#64748b', marginBottom: 10 }}>Notez votre partenaire :</Text>
-              <View style={{ flexDirection: 'row', gap: 8 }}>
-                {[1, 2, 3, 4, 5].map((star) => (
-                  <TouchableOpacity key={star} onPress={() => setUserRating(star)}>
-                    <Ionicons name={star <= userRating ? "star" : "star-outline"} size={32} color={star <= userRating ? "#eab308" : "#cbd5e1"} />
-                  </TouchableOpacity>
-                ))}
-              </View>
-            </View>
-            <TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: userRating > 0 ? '#1e3a8a' : '#f1f5f9' }]} onPress={userRating > 0 ? submitRating : () => setShowSummary(false)}>
-              {isSubmittingRating ? <ActivityIndicator color="#fff" /> : <Text style={[styles.closeSummaryText, { color: userRating > 0 ? '#fff' : '#64748b' }]}>ENVOYER MA NOTE</Text>}
+            <TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: '#1e3a8a' }]} onPress={() => setShowSummary(false)}>
+              <Text style={[styles.closeSummaryText, { color: '#fff' }]}>FERMER</Text>
             </TouchableOpacity>
           </View>
         </View>
