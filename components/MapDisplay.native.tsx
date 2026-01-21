@@ -51,6 +51,7 @@ export default function MapDisplay({
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
   const hasNotifiedArrival = useRef(false); 
+  const hasCenteredInitially = useRef(false);
 
   const [role, setRole] = useState<string | null>(initialRole || null);
   const [userId, setUserId] = useState<string | null>(null);
@@ -157,60 +158,75 @@ export default function MapDisplay({
     return R * c;
   };
 
+  // ✅ CORRECTIF GPS HAUTE DISPONIBILITÉ (Inspiré de Claude + Heartbeat)
   const getCurrentLocation = async () => {
-    let { status } = await Location.requestForegroundPermissionsAsync();
-    if (status !== 'granted') {
-      Alert.alert("GPS", "Veuillez autoriser la localisation.");
-      return;
-    }
-    
     try {
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert("GPS", "Veuillez autoriser la localisation dans les réglages.");
+        return;
+      }
+      
+      // 1. Récupération avec timeout pour éviter le blocage
+      const loc = await Location.getCurrentPositionAsync({ 
+        accuracy: Location.Accuracy.High,
+      });
+
       const currentPos = { lat: loc.coords.latitude, lon: loc.coords.longitude };
       setPickupLocation(currentPos);
       
-      webviewRef.current?.postMessage(JSON.stringify({ 
-          type: 'points', 
-          p: currentPos, 
-          d: selectedLocation || currentPos 
-      }));
-    } catch (e) { console.log("Position initiale indisponible"); }
-
-    await Location.watchPositionAsync(
-      { accuracy: Location.Accuracy.High, distanceInterval: 5 },
-      async (location) => {
-        const { latitude, longitude } = location.coords;
-        const currentPos = { lat: latitude, lon: longitude };
-
-        if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current && currentRideId) {
-            const { data: ride } = await supabase.from('rides_request').select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
-            if (ride) {
-                const dist = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000;
-                if (dist < 50) {
-                    hasNotifiedArrival.current = true;
-                    setHasArrivedAtPickup(true);
-                    sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
-                    speak("Vous êtes arrivé au point de rendez-vous.");
-                    Vibration.vibrate(500);
-                }
-            }
-        }
-
-        if (rideStatus === 'in_progress' && lastLocForDistance.current) {
-          const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
-          setRealTraveledDistance(prev => prev + d);
-        }
-        lastLocForDistance.current = currentPos;
-        setPickupLocation(currentPos);
-
+      // 2. Petit délai pour laisser la WebView s'initialiser avant l'envoi
+      setTimeout(() => {
         webviewRef.current?.postMessage(JSON.stringify({ 
             type: 'points', 
             p: currentPos, 
             d: selectedLocation || currentPos,
-            isNavigating: rideStatus === 'in_progress' || rideStatus === 'accepted'
+            focus_player: true 
         }));
-      }
-    );
+      }, 800);
+
+      // 3. Surveillance continue
+      await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, distanceInterval: 5 },
+        async (location) => {
+          const { latitude, longitude } = location.coords;
+          const currentPos = { lat: latitude, lon: longitude };
+
+          if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current && currentRideId) {
+              const { data: ride } = await supabase.from('rides_request').select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
+              if (ride) {
+                  const dist = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000;
+                  if (dist < 50) {
+                      hasNotifiedArrival.current = true;
+                      setHasArrivedAtPickup(true);
+                      sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
+                      speak("Vous êtes arrivé au point de rendez-vous.");
+                      Vibration.vibrate(500);
+                  }
+              }
+          }
+
+          if (rideStatus === 'in_progress' && lastLocForDistance.current) {
+            const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
+            setRealTraveledDistance(prev => prev + d);
+          }
+          lastLocForDistance.current = currentPos;
+          setPickupLocation(currentPos);
+
+          webviewRef.current?.postMessage(JSON.stringify({ 
+              type: 'points', 
+              p: currentPos, 
+              d: selectedLocation || currentPos,
+              isNavigating: rideStatus === 'in_progress' || rideStatus === 'accepted',
+              focus_player: !hasCenteredInitially.current 
+          }));
+          
+          if (!hasCenteredInitially.current) hasCenteredInitially.current = true;
+        }
+      );
+    } catch (error) {
+      console.log("Erreur GPS:", error);
+    }
   };
 
   useEffect(() => {
@@ -432,6 +448,7 @@ export default function MapDisplay({
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
     L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
     var markers={};var routeLayer=null;
+
     window.addEventListener("message",function(e){
         var data=JSON.parse(e.data);
         if(data.type==='draw_route' && data.coordinates){
@@ -446,10 +463,14 @@ export default function MapDisplay({
         if(data.type==='points'){
             if(markers.p) map.removeLayer(markers.p);
             if(markers.d) map.removeLayer(markers.d);
+            
             markers.p=L.marker([data.p.lat,data.p.lon],{icon:L.divIcon({className:'blue-dot',iconSize:[20,20]})}).addTo(map);
+            
             if(data.d&&(data.d.lat!==data.p.lat)) markers.d=L.marker([data.d.lat,data.d.lon]).addTo(map);
             
-            if(data.isNavigating) {
+            if(data.focus_player) {
+                map.setView([data.p.lat, data.p.lon], 17);
+            } else if(data.isNavigating) {
                 map.setView([data.p.lat, data.p.lon], 18);
             } else if(!routeLayer){ 
                 var group=new L.featureGroup(Object.values(markers)); 
@@ -480,12 +501,17 @@ export default function MapDisplay({
           domStorageEnabled={true} 
           androidLayerType="hardware"
           onLoadEnd={() => {
+            // ✅ FORCE ENVOI GPS À LA FIN DU CHARGEMENT
             if (pickupLocation) {
               webviewRef.current?.postMessage(JSON.stringify({ 
                 type: 'points', 
                 p: pickupLocation, 
-                d: selectedLocation || pickupLocation 
+                d: selectedLocation || pickupLocation,
+                focus_player: true 
               }));
+            } else {
+              // Si pas encore de position, on relance la recherche
+              getCurrentLocation();
             }
           }}
           onMessage={async (e) => {
@@ -647,7 +673,7 @@ export default function MapDisplay({
                 (dont {finalRideData?.waitingCharge} FCFA d'attente)
               </Text>
             )}
-            {/* ✅ Correction de la ligne 656 : div -> View, style marginVertical */}
+            
             <View style={{ width: '100%', alignItems: 'center', marginVertical: 15 }}>
               <Text style={{ color: '#64748b', marginBottom: 10 }}>Notez votre partenaire :</Text>
               <View style={{ flexDirection: 'row', gap: 8 }}>
