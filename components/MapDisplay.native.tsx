@@ -123,19 +123,31 @@ export default function MapDisplay({
           style: "destructive",
           onPress: async () => {
             try {
-              // 1. Mise à jour Supabase
               const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+              
+              // 1. Récupérer l'heure de création de la course
+              const { data: ride } = await supabase.from(table).select('created_at').eq('id', currentRideId).single();
+              
+              if (ride) {
+                const now = new Date().getTime();
+                const createdAt = new Date(ride.created_at).getTime();
+                const diffInSeconds = (now - createdAt) / 1000;
+
+                // 2. Si plus de 120 secondes (2 mn), on applique la pénalité
+                if (diffInSeconds > 120) {
+                  const { data: prof } = await supabase.from('profiles').select('score').eq('id', userId).single();
+                  await supabase.from('profiles').update({ score: Math.max(0, (prof?.score || 100) - 2) }).eq('id', userId);
+                  Alert.alert("Pénalité", "Délai de 2mn dépassé : -2 points de fiabilité.");
+                } else {
+                  Alert.alert("Annulation Gratuite", "Course annulée sans pénalité.");
+                }
+              }
+
+              // 3. Mise à jour du statut et nettoyage
               await supabase.from(table).update({ status: 'cancelled' }).eq('id', currentRideId);
-              
-              // 2. Baisse du score de fiabilité
-              const { data: prof } = await supabase.from('profiles').select('score').eq('id', userId).single();
-              await supabase.from('profiles').update({ score: Math.max(0, (prof?.score || 100) - 2) }).eq('id', userId);
-              
-              // 3. Information partenaire et nettoyage
               sendMessage("⚠️ La course a été annulée.");
               speak("Course annulée.");
               resetSearch();
-              Alert.alert("DIOMY", "Course annulée avec succès.");
             } catch (err) {
               console.error("Erreur annulation:", err);
             }
