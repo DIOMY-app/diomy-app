@@ -20,7 +20,7 @@ const env = {
 const config: ExpoConfig = {
   name: env.appName,
   slug: env.appSlug,
-  version: "1.0.0",
+  version: "1.0.1", // ✅ Mis à jour pour la nouvelle version
   orientation: "portrait",
   icon: "./assets/images/icon.png",
   scheme: env.scheme,
@@ -35,7 +35,6 @@ const config: ExpoConfig = {
     }
   },
 
-  // ✅ CONFIGURATION OPTIMISÉE POUR LES MISES À JOUR (UPDATES)
   updates: {
     enabled: true,
     checkAutomatically: "ON_LOAD",
@@ -54,6 +53,7 @@ const config: ExpoConfig = {
 
   android: {
     package: env.androidPackage,
+    versionCode: 2, // ✅ Ajouté pour permettre la mise à jour sur le téléphone
     googleServicesFile: "./google-services.json", 
     adaptiveIcon: {
       backgroundColor: "#009199", 
@@ -67,6 +67,8 @@ const config: ExpoConfig = {
       "ACCESS_FINE_LOCATION", 
       "FOREGROUND_SERVICE",
       "CAMERA",
+      "READ_CONTACTS", // ✅ AJOUTÉ pour le répertoire
+      "WRITE_CONTACTS", // ✅ AJOUTÉ pour le répertoire
       "READ_EXTERNAL_STORAGE",
       "WRITE_EXTERNAL_STORAGE"
     ],
@@ -94,10 +96,16 @@ const config: ExpoConfig = {
   plugins: [
     "expo-router",
     [
+      "expo-contacts", // ✅ AJOUTÉ pour le fonctionnement natif Android
+      {
+        "contactsPermission": "Autoriser DIOMY à accéder à vos contacts pour faciliter l'envoi de colis."
+      }
+    ],
+    [
       "expo-image-picker",
       {
         "photosPermission": "Autoriser DIOMY à accéder à vos photos pour personnaliser votre profil.",
-        "cameraPermission": "Autoriser DIOMY à utiliser l'appareil photo pour votre profil."
+        "cameraPermission": "Autoriser DIOMY à utiliser l'appareil photo pour la preuve de livraison."
       }
     ],
     [
