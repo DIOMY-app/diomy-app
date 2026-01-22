@@ -11,8 +11,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router'; 
-import SwipeButton from 'react-native-swipe-button'; // ✅ Acquis : Simplification chauffeur
-
+import SwipeButton from 'react-native-swipe-button'; 
 
 // ✅ NOUVEAUX IMPORTS PHASE 2 (Cloisonnement)
 import ServiceSelector from './ServiceSelector';
@@ -54,10 +53,15 @@ export default function MapDisplay({
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  // ✅ ÉTAT DE SÉLECTION DU SERVICE (Phase 2)
+  // ✅ ÉTATS DE SÉLECTION DU SERVICE
   const [activeService, setActiveService] = useState<'transport' | 'delivery' | null>(null);
-  const [showDeliveryForm, setShowDeliveryForm] = useState(false); // ✅ AJOUTÉ pour activer le bouton
-  const [deliveryPin, setDeliveryPin] = useState<string | null>(null); // ✅ AJOUTÉ pour mémoire PIN
+  const [showDeliveryForm, setShowDeliveryForm] = useState(false); 
+  
+  // ✅ ÉTATS AJOUTÉS SÉCURITÉ PHASE 2
+  const [deliveryPin, setDeliveryPin] = useState<string | null>(null); 
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [enteredPin, setEnteredPin] = useState('');
+  const hasNotifiedProximity = useRef(false);
 
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
@@ -109,7 +113,14 @@ export default function MapDisplay({
     } catch (e) { console.error("Speech error:", e); }
   };
 
-  // ✅ NOUVELLE FONCTION : Gestion de l'annulation (MAINTENUE)
+  // ✅ FONCTION NOTIFICATION PUSH GRATUITE
+  const sendPushNotification = async (title: string, body: string) => {
+    await Notifications.scheduleNotificationAsync({
+      content: { title, body, sound: true, priority: 'high' },
+      trigger: null,
+    });
+  };
+
   const handleCancelRide = async () => {
     if (!currentRideId) return;
 
@@ -124,8 +135,6 @@ export default function MapDisplay({
           onPress: async () => {
             try {
               const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-              
-              // 1. Récupérer l'heure de création de la course
               const { data: ride } = await supabase.from(table).select('created_at').eq('id', currentRideId).single();
               
               if (ride) {
@@ -133,7 +142,6 @@ export default function MapDisplay({
                 const createdAt = new Date(ride.created_at).getTime();
                 const diffInSeconds = (now - createdAt) / 1000;
 
-                // 2. Si plus de 120 secondes (2 mn), on applique la pénalité
                 if (diffInSeconds > 120) {
                   const { data: prof } = await supabase.from('profiles').select('score').eq('id', userId).single();
                   await supabase.from('profiles').update({ score: Math.max(0, (prof?.score || 100) - 2) }).eq('id', userId);
@@ -143,7 +151,6 @@ export default function MapDisplay({
                 }
               }
 
-              // 3. Mise à jour du statut et nettoyage
               await supabase.from(table).update({ status: 'cancelled' }).eq('id', currentRideId);
               sendMessage("⚠️ La course a été annulée.");
               speak("Course annulée.");
@@ -157,10 +164,9 @@ export default function MapDisplay({
     );
   };
 
-  // ✅ COMMANDE COLIS (Phase 2)
   const handleDeliveryOrder = async (deliveryData: any) => {
     const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
-    setDeliveryPin(pinCode); // Mémorise le PIN
+    setDeliveryPin(pinCode); 
     try {
       const { data } = await supabase.from('delivery_requests').insert([{
         sender_id: userId,
@@ -177,9 +183,9 @@ export default function MapDisplay({
       if (data) {
         Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
         speak("Livraison enregistrée. Donnez le code au destinataire.");
-        setRideStatus('pending'); // ✅ DÉCLENCHE LA RECHERCHE VISUELLE
+        setRideStatus('pending'); 
         setCurrentRideId(data.id);
-        setShowDeliveryForm(false); // ✅ Ferme le formulaire après validation
+        setShowDeliveryForm(false);
       }
     } catch (err) { console.error(err); }
   };
@@ -284,8 +290,19 @@ export default function MapDisplay({
           const { latitude, longitude } = location.coords;
           const currentPos = { lat: latitude, lon: longitude };
 
+          // ✅ LOGIQUE PROXIMITÉ 500M (Phase 2)
+          if (role === 'chauffeur' && rideStatus === 'in_progress' && !hasNotifiedProximity.current && selectedLocation) {
+            const dToDest = calculateDistance(latitude, longitude, selectedLocation.lat, selectedLocation.lon) * 1000;
+            if (dToDest < 500) {
+              hasNotifiedProximity.current = true;
+              sendMessage("🚀 Je suis à moins de 500m de l'arrivée !");
+              sendPushNotification("DIOMY", "Votre colis arrive dans 2 minutes !");
+            }
+          }
+
           if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current && currentRideId) {
-              const { data: ride } = await supabase.from('rides_request').select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
+              const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+              const { data: ride } = await supabase.from(table).select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
               if (ride) {
                   const dist = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000;
                   if (dist < 50) {
@@ -354,17 +371,21 @@ export default function MapDisplay({
   };
 
   const updateDriverNavigation = async (status: string, rideId: string) => {
-    const { data: ride } = await supabase.from('rides_request').select('*').eq('id', rideId).single();
+    const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+    const { data: ride } = await supabase.from(table).select('*').eq('id', rideId).single();
     if (!ride) return;
     const myLoc = await Location.getCurrentPositionAsync({});
     
     if (status === 'accepted') {
-      speak("Trajet vers le client lancé.");
+      speak("Trajet vers le point de retrait.");
       await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, ride.pickup_lat, ride.pickup_lon);
     } else if (status === 'in_progress') {
       speak("Course débutée.");
       setRealTraveledDistance(0); 
-      await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, ride.dest_lat, ride.dest_lon);
+      // Pour les colis, la destination est dans delivery_lat/lon
+      const destLat = activeService === 'delivery' ? ride.delivery_lat : ride.dest_lat;
+      const destLon = activeService === 'delivery' ? ride.delivery_lon : ride.dest_lon;
+      await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, destLat, destLon);
     }
   };
 
@@ -379,7 +400,6 @@ export default function MapDisplay({
       const distanceKm = r.distance / 1000;
       setEstimatedDistance(distanceKm.toFixed(1));
       
-      // ✅ LOGIQUE TARIF 500F / 3KM (Phase 2)
       const isColis = activeService === 'delivery';
       const basePrice = isColis ? 500 : 250;
       const threshold = isColis ? 3.0 : 1.5; 
@@ -395,26 +415,35 @@ export default function MapDisplay({
     }
   };
 
+  // ✅ VÉRIFICATION PIN CHAUFFEUR
+  const handleVerifyPinAndFinish = async () => {
+    const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+    const { data: ride } = await supabase.from(table).select('verification_code').eq('id', currentRideId).single();
+    if (activeService === 'delivery' && enteredPin !== ride?.verification_code) {
+      Alert.alert("DIOMY", "Code PIN incorrect."); Vibration.vibrate(500); return;
+    }
+    setShowPinModal(false);
+    handleFinalizeRide();
+  };
+
   const handleFinalizeRide = async () => {
     try {
-      // ✅ AJOUT : Verification PIN pour Colis selon Boussole
-      if (activeService === 'delivery') {
-          // Ici on pourrait ouvrir un Modal de saisie PIN, mais on garde la logique prix pour l'instant
-      }
-
       const waitingCharge = Math.ceil(waitingTime / 60) * 25;
-      const { data: rideToFinish } = await supabase.from('rides_request').select('*').eq('id', currentRideId).single();
-      
+      const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+      const { data: rideToFinish } = await supabase.from(table).select('*').eq('id', currentRideId).single();
       const isColis = activeService === 'delivery';
-      const basePrice = isColis ? 500 : 250;
+      
       const threshold = isColis ? 3.0 : 1.5;
+      const basePrice = isColis ? 500 : 250;
       const finalPrice = Math.ceil((basePrice + (realTraveledDistance > threshold ? (realTraveledDistance - threshold) * 100 : 0) + waitingCharge) / 50) * 50;
       
-      await supabase.from('rides_request').update({ status: 'completed', price: finalPrice }).eq('id', currentRideId);
-      setFinalRideData({ ...rideToFinish, price: finalPrice, waitingCharge });
+      await supabase.from(table).update({ status: 'completed', price: finalPrice }).eq('id', currentRideId);
+      setFinalRideData({ ...rideToFinish, price: finalPrice });
       setShowSummary(true); 
       setIsWaiting(false);
-      speak(`Course terminée. Le montant est de ${finalPrice} francs.`);
+      
+      if (isColis) sendPushNotification("DIOMY", "✅ Votre colis a été livré !");
+      speak(`Mission terminée. Montant ${finalPrice} francs.`);
     } catch (err) { console.error(err); }
   };
 
@@ -433,11 +462,13 @@ export default function MapDisplay({
     isHandlingModal.current = false;
     lastProcessedRideId.current = null;
     hasNotifiedArrival.current = false;
+    hasNotifiedProximity.current = false;
     setHasArrivedAtPickup(false);
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
-    setActiveService(null); // ✅ Retour au choix Phase 2
-    setShowDeliveryForm(false); // ✅ RAZ
+    setActiveService(null); 
+    setShowDeliveryForm(false); 
     setDeliveryPin(null);
+    setEnteredPin('');
     webviewRef.current?.injectJavaScript(`
       if(markers.p) map.removeLayer(markers.p);
       if(markers.d) map.removeLayer(markers.d);
@@ -451,8 +482,14 @@ export default function MapDisplay({
     if (userRating === 0 || !finalRideData) return;
     setIsSubmittingRating(true);
     try {
-      const targetId = role === 'chauffeur' ? finalRideData.passenger_id : finalRideData.driver_id;
-      await supabase.from('ride_ratings').insert([{ ride_id: finalRideData.id, passenger_id: finalRideData.passenger_id, driver_id: finalRideData.driver_id, rating: userRating, rated_by: role }]);
+      const targetId = role === 'chauffeur' ? (finalRideData.passenger_id || finalRideData.sender_id) : finalRideData.driver_id;
+      await supabase.from('ride_ratings').insert([{ 
+        ride_id: finalRideData.id, 
+        passenger_id: finalRideData.passenger_id || finalRideData.sender_id, 
+        driver_id: finalRideData.driver_id, 
+        rating: userRating, 
+        rated_by: role 
+      }]);
       let scoreChange = userRating === 5 ? 2 : userRating === 4 ? 1 : userRating <= 2 ? -5 : 0;
       if (scoreChange !== 0) {
         const { data: targetProf } = await supabase.from('profiles').select('score').eq('id', targetId).single();
@@ -505,11 +542,10 @@ export default function MapDisplay({
              if (partnerId) fetchPartnerInfo(partnerId);
              if (role === 'chauffeur') updateDriverNavigation(up.status, up.id);
           }
-          // ✅ Gestion du retour à zéro si l'autre annule (MAINTENU)
           if (up.status === 'cancelled') {
-             Alert.alert("DIOMY", "La course a été annulée par votre partenaire.");
-             speak("Course annulée.");
-             resetSearch();
+              Alert.alert("DIOMY", "La course a été annulée par votre partenaire.");
+              speak("Course annulée.");
+              resetSearch();
           }
         }
       })
@@ -549,7 +585,6 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  // ✅ HTML CARTE (Acquis préservé)
   const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
       body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
@@ -592,7 +627,7 @@ export default function MapDisplay({
       </View>
 
       {/* ✅ MÉMOIRE CODE PIN (Badge permanent) */}
-      {deliveryPin && (rideStatus === 'pending' || rideStatus === 'accepted') && (
+      {deliveryPin && (rideStatus === 'pending' || rideStatus === 'accepted' || rideStatus === 'in_progress') && (
         <View style={styles.pinReminder}>
           <Text style={styles.pinLabel}>CODE COLIS</Text>
           <Text style={styles.pinValue}>{deliveryPin}</Text>
@@ -604,12 +639,12 @@ export default function MapDisplay({
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
         <View style={styles.overlay}>
           
-          {/* ✅ PHASE 2 : SÉLECTEUR INITIAL */}
+          {/* ✅ SÉLECTEUR INITIAL */}
           {role === 'passager' && !activeService && !rideStatus && (
             <ServiceSelector onSelect={(m) => setActiveService(m)} />
           )}
 
-          {/* ✅ PHASE 2 : RECHERCHE DESTINATION (BLOC UNIQUE DÉBLOQUÉ SANS DOUBLON) */}
+          {/* ✅ RECHERCHE DESTINATION */}
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
               {suggestions.length > 0 && destination.length > 0 && (
@@ -634,14 +669,13 @@ export default function MapDisplay({
                         if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
                       } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
                     } else {
-                      setShowDeliveryForm(true); // ✅ Ouvre le formulaire Colis
+                      setShowDeliveryForm(true); 
                     }
                   }}>
                   <View style={styles.priceContainer}>
                     <View style={styles.priceLeft}>
                         <Text style={styles.distLabel}>{estimatedDistance} km</Text>
                         <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
-                        {/* ✅ AJOUT TRANSPARENCE 3KM */}
                         {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE 3 KM INCLUS</Text>}
                     </View>
                     <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
@@ -674,7 +708,7 @@ export default function MapDisplay({
               <View style={styles.idHeader}>
                 <View style={styles.avatarBox}>{partnerInfo.avatar_url ? <Image source={{ uri: partnerInfo.avatar_url }} style={styles.avatarImg} /> : <Ionicons name="person" size={28} color="#94a3b8" />}</View>
                 <View style={{ flex: 1, marginLeft: 15 }}>
-                  <Text style={styles.idLabel}>{role === 'chauffeur' ? "VOTRE PASSAGER" : "VOTRE CHAUFFEUR"}</Text>
+                  <Text style={styles.idLabel}>{role === 'chauffeur' ? "VOTRE PARTENAIRE" : (activeService === 'delivery' ? "LIVREUR" : "VOTRE CHAUFFEUR")}</Text>
                   <Text style={styles.idName}>{partnerInfo.full_name || "Utilisateur"}</Text>
                   {role === 'passager' && <Text style={styles.idMoto}>🏍️ {partnerInfo.vehicle_model || "Moto Standard"}</Text>}
                 </View>
@@ -703,32 +737,22 @@ export default function MapDisplay({
                 <View style={{ width: '100%' }}>
                   {!hasArrivedAtPickup ? (
                     <SwipeButton
-                      title={activeService === 'delivery' ? "ARRIVÉ CHEZ L'EXPÉDITEUR" : "GLISSER POUR L'ARRIVÉE"}
-                      onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé !"); speak(activeService === 'delivery' ? "Prenez la photo du colis maintenant." : "Vous êtes arrivé au passager."); }}
+                      title="GLISSER POUR L'ARRIVÉE"
+                      onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé."); }}
                       railBackgroundColor="#cbd5e1" railFillBackgroundColor="#1e3a8a" railFillBorderColor="#1e3a8a"
                       thumbIconBackgroundColor="#fff" thumbIconBorderColor="#1e3a8a" titleColor="#1e3a8a" titleFontSize={14}
                     />
                   ) : (
-                    <View style={{ gap: 10 }}> 
-                        {/* ✅ AJOUT : Bouton Photo uniquement pour les Colis */}
-                        {activeService === 'delivery' && (
-                        <TouchableOpacity 
-                            style={[styles.mainBtn, { backgroundColor: '#f97316', height: 50, marginBottom: 5 }]}
-                            onPress={() => speak("Appareil photo en cours de chargement...")} // Connecté à ta logique photo existante
-                        >
-                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
-                            <Ionicons name="camera" size={20} color="#fff" />
-                            <Text style={styles.btnText}>PHOTO PREUVE COLIS</Text>
-                            </View>
-                        </TouchableOpacity>
-                        )}
-                        <SwipeButton
-                        title={activeService === 'delivery' ? "COLIS RÉCUPÉRÉ ✅" : "GLISSER POUR DÉBUTER"}
-                        onSwipeSuccess={async () => { await supabase.from(activeService === 'delivery' ? 'delivery_requests' : 'rides_request').update({ status: 'in_progress' }).eq('id', currentRideId); speak("C'est parti ! Suivez l'itinéraire."); }}
-                        railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316"
-                        thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}
-                        />
-                    </View>
+                    <SwipeButton
+                      title="GLISSER POUR DÉBUTER"
+                      onSwipeSuccess={async () => { 
+                        const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+                        await supabase.from(table).update({ status: 'in_progress' }).eq('id', currentRideId); 
+                        speak("Course débutée."); 
+                      }}
+                      railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316"
+                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}
+                    />
                   )}
                 </View>
               ) : rideStatus === 'in_progress' ? (
@@ -737,8 +761,8 @@ export default function MapDisplay({
                     <Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text>
                   </TouchableOpacity>
                   <SwipeButton
-                    title={activeService === 'delivery' ? "GLISSER POUR LIVRER" : "GLISSER POUR TERMINER"}
-                    onSwipeSuccess={handleFinalizeRide}
+                    title={activeService === 'delivery' ? "LIVRER (Saisir PIN)" : "GLISSER POUR TERMINER"}
+                    onSwipeSuccess={() => activeService === 'delivery' ? setShowPinModal(true) : handleFinalizeRide()}
                     railBackgroundColor="#dcfce7" railFillBackgroundColor="#22c55e" railFillBorderColor="#22c55e"
                     thumbIconBackgroundColor="#fff" thumbIconBorderColor="#22c55e" titleColor="#22c55e" titleFontSize={14}
                   />
@@ -750,7 +774,6 @@ export default function MapDisplay({
               )}
             </View>
           ) : (
-            /* ✅ AFFICHAGE RECHERCHE UNIQUE (VISIBLE POUR TAXI ET COLIS) */
             rideStatus === 'pending' && (
               <View style={styles.statusCard}>
                 <ActivityIndicator color="#1e3a8a" />
@@ -758,36 +781,6 @@ export default function MapDisplay({
                 <TouchableOpacity onPress={handleCancelRide}><Ionicons name="close-circle" size={30} color="#ef4444" /></TouchableOpacity>
               </View>
             )
-          )}
-
-          {/* ✅ ALERTE RÉCEPTION CHAUFFEUR (Taxi vs Colis) */}
-          {role === 'chauffeur' && rideStatus === 'pending' && (
-            <View style={[styles.statusCard, { borderLeftWidth: 10, borderLeftColor: activeService === 'delivery' ? '#f97316' : '#1e3a8a' }]}>
-                <View style={{ flex: 1 }}>
-                <Text style={styles.idLabel}>NOUVELLE DEMANDE</Text>
-                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
-                    <MaterialCommunityIcons 
-                    name={activeService === 'delivery' ? "package-variant-closed" : "account-group"} 
-                    size={24} 
-                    color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} 
-                    />
-                    <Text style={[styles.statusText, { color: activeService === 'delivery' ? "#f97316" : "#1e3a8a" }]}>
-                    {activeService === 'delivery' ? "COLIS 📦" : "PASSAGER 🏍️"}
-                    </Text>
-                </View>
-                <Text style={styles.idName} numberOfLines={1}>{destination || "Korhogo"}</Text>
-                </View>
-                <TouchableOpacity 
-                style={[styles.actionCircle, { backgroundColor: '#22c55e' }]} 
-                onPress={async () => {
-                    const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-                    await supabase.from(table).update({ status: 'accepted', driver_id: userId }).eq('id', currentRideId);
-                    speak("Mission acceptée. Allez au point de départ.");
-                }}
-                >
-                <Ionicons name="checkmark" size={28} color="#fff" />
-                </TouchableOpacity>
-            </View>
           )}
         </View>
       </KeyboardAvoidingView>
@@ -817,11 +810,30 @@ export default function MapDisplay({
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { padding: 25 }]}>
             <Ionicons name="checkmark-circle" size={60} color="#22c55e" />
-            <Text style={styles.modalTitle}>Mission Terminée</Text>
+            <Text style={styles.modalTitle}>Terminé !</Text>
             <Text style={styles.priceSummary}>{finalRideData?.price} FCFA</Text>
             <TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: '#1e3a8a' }]} onPress={() => setShowSummary(false)}>
               <Text style={[styles.closeSummaryText, { color: '#fff' }]}>FERMER</Text>
             </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      {/* ✅ MODAL SAISIE PIN SÉCURISÉ */}
+      <Modal visible={showPinModal} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <MaterialCommunityIcons name="lock-check" size={50} color="#1e3a8a" />
+            <Text style={styles.modalTitle}>Vérification PIN</Text>
+            <Text style={{ textAlign: 'center', marginBottom: 20 }}>Demandez le code au destinataire pour valider.</Text>
+            <TextInput 
+              style={[styles.searchBar, { textAlign: 'center', fontSize: 30, letterSpacing: 10, width: '100%' }]} 
+              placeholder="0000" keyboardType="number-pad" maxLength={4} value={enteredPin} onChangeText={setEnteredPin} 
+            />
+            <TouchableOpacity style={[styles.mainBtn, { width: '100%', marginTop: 20, backgroundColor: '#22c55e' }]} onPress={handleVerifyPinAndFinish}>
+              <Text style={styles.btnText}>TERMINER LIVRAISON</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity>
           </View>
         </View>
       </Modal>
