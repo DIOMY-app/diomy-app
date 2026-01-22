@@ -57,6 +57,7 @@ export default function MapDisplay({
   // ✅ ÉTAT DE SÉLECTION DU SERVICE (Phase 2)
   const [activeService, setActiveService] = useState<'transport' | 'delivery' | null>(null);
   const [showDeliveryForm, setShowDeliveryForm] = useState(false); // ✅ AJOUTÉ pour activer le bouton
+  const [deliveryPin, setDeliveryPin] = useState<string | null>(null); // ✅ Pour mémoriser le code
 
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
@@ -123,7 +124,8 @@ export default function MapDisplay({
           onPress: async () => {
             try {
               // 1. Mise à jour Supabase
-              await supabase.from('rides_request').update({ status: 'cancelled' }).eq('id', currentRideId);
+              const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+              await supabase.from(table).update({ status: 'cancelled' }).eq('id', currentRideId);
               
               // 2. Baisse du score de fiabilité
               const { data: prof } = await supabase.from('profiles').select('score').eq('id', userId).single();
@@ -146,6 +148,7 @@ export default function MapDisplay({
   // ✅ COMMANDE COLIS (Phase 2)
   const handleDeliveryOrder = async (deliveryData: any) => {
     const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
+    setDeliveryPin(pinCode); // Mémorise le code
     try {
       const { data } = await supabase.from('delivery_requests').insert([{
         sender_id: userId,
@@ -162,7 +165,8 @@ export default function MapDisplay({
       if (data) {
         Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
         speak("Livraison enregistrée. Donnez le code au destinataire.");
-        setRideStatus('pending'); // On utilise le statut pending pour bloquer l'interface
+        setRideStatus('pending'); // ✅ ACTIVE LA RECHERCHE VISUELLE
+        setCurrentRideId(data.id);
         setShowDeliveryForm(false); // ✅ Ferme le formulaire après validation
       }
     } catch (err) { console.error(err); }
@@ -360,8 +364,12 @@ export default function MapDisplay({
     const loc = await Location.getCurrentPositionAsync({});
     const r = await getRoute(loc.coords.latitude, loc.coords.longitude, lat, lon);
     if (r) {
-      setEstimatedDistance((r.distance/1000).toFixed(1));
-      setEstimatedPrice(Math.ceil((250 + (r.distance/1000 > 1.5 ? (r.distance/1000 - 1.5) * 100 : 0)) / 50) * 50);
+      const distanceKm = r.distance / 1000;
+      setEstimatedDistance(distanceKm.toFixed(1));
+      // ✅ TARIF BASE : 500F (Colis) ou 250F (Transport)
+      const base = activeService === 'delivery' ? 500 : 250;
+      const price = Math.ceil((base + (distanceKm > 1.5 ? (distanceKm - 1.5) * 100 : 0)) / 50) * 50;
+      setEstimatedPrice(price);
       
       webviewRef.current?.injectJavaScript(`
         if(markers.d) map.removeLayer(markers.d);
@@ -380,7 +388,7 @@ export default function MapDisplay({
       const initialDistKm = parseFloat(estimatedDistance || "0");
       let finalPrice = initialPrice;
       if (realTraveledDistance > initialDistKm) {
-        finalPrice = Math.ceil((250 + (realTraveledDistance > 1.5 ? (realTraveledDistance - 1.5) * 100 : 0) + waitingCharge) / 50) * 50;
+        finalPrice = Math.ceil(((activeService === 'delivery' ? 500 : 250) + (realTraveledDistance > 1.5 ? (realTraveledDistance - 1.5) * 100 : 0) + waitingCharge) / 50) * 50;
       } else {
         finalPrice = initialPrice + waitingCharge;
       }
@@ -411,6 +419,7 @@ export default function MapDisplay({
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
     setActiveService(null); // ✅ Retour au choix Phase 2
     setShowDeliveryForm(false); // ✅ RAZ
+    setDeliveryPin(null); // RAZ Pin
     webviewRef.current?.injectJavaScript(`
       if(markers.p) map.removeLayer(markers.p);
       if(markers.d) map.removeLayer(markers.d);
@@ -465,15 +474,16 @@ export default function MapDisplay({
 
   useEffect(() => {
     if (!userId) return;
+    const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
     const channel = supabase.channel('rides-realtime-secure')
-      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'rides_request' }, (payload) => {
+      .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: table }, (payload) => {
         const up = payload.new as any;
-        if (up.passenger_id === userId || up.driver_id === userId) {
+        if (up.passenger_id === userId || up.sender_id === userId || up.driver_id === userId) {
           setRideStatus(up.status);
           setCurrentRideId(up.id);
           if (up.status === 'completed') { setFinalRideData(up); setShowSummary(true); setRideStatus(null); setPartnerInfo(null); }
           if (up.status === 'accepted' || up.status === 'in_progress') {
-             const partnerId = role === 'chauffeur' ? up.passenger_id : up.driver_id;
+             const partnerId = role === 'chauffeur' ? (up.passenger_id || up.sender_id) : up.driver_id;
              if (partnerId) fetchPartnerInfo(partnerId);
              if (role === 'chauffeur') updateDriverNavigation(up.status, up.id);
           }
@@ -485,15 +495,15 @@ export default function MapDisplay({
           }
         }
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'rides_request', filter: `status=eq.pending` }, (payload) => {
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: table, filter: `status=eq.pending` }, (payload) => {
         const nr = payload.new as any;
         if (nr.driver_id === userId && isOnline && !rideStatus && !isHandlingModal.current && nr.id !== lastProcessedRideId.current) { 
-          speak("Nouvelle demande de course.");
+          speak("Nouvelle demande.");
           Vibration.vibrate([0, 500, 200, 500]);
         }
       }).subscribe();
     return () => { supabase.removeChannel(channel); };
-  }, [userId, isOnline, rideStatus]);
+  }, [userId, isOnline, rideStatus, activeService]);
 
   useEffect(() => {
     if (!currentRideId) return;
@@ -563,20 +573,27 @@ export default function MapDisplay({
         />
       </View>
 
+      {/* ✅ MÉMOIRE CODE PIN (Badge permanent) */}
+      {deliveryPin && (rideStatus === 'pending' || rideStatus === 'accepted') && (
+        <View style={styles.pinReminder}>
+          <Text style={styles.pinLabel}>CODE COLIS</Text>
+          <Text style={styles.pinValue}>{deliveryPin}</Text>
+        </View>
+      )}
+
       <TouchableOpacity style={styles.gpsBtn} onPress={() => getCurrentLocation(true)}><Ionicons name="locate" size={26} color="#1e3a8a" /></TouchableOpacity>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
         <View style={styles.overlay}>
           
-          {/* ✅ PHASE 2 : SÉLECTEUR INITIAL (Si rien choisi) */}
+          {/* ✅ PHASE 2 : SÉLECTEUR INITIAL */}
           {role === 'passager' && !activeService && !rideStatus && (
             <ServiceSelector onSelect={(m) => setActiveService(m)} />
           )}
 
-          {/* ✅ PHASE 2 : RECHERCHE DESTINATION (Visible pour Transport ET Colis) */}
+          {/* ✅ PHASE 2 : RECHERCHE DESTINATION (Visible pour les deux modes) */}
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
-              {/* Suggestions */}
               {suggestions.length > 0 && destination.length > 0 && (
                 <View style={styles.suggestionsContainer}>
                   <ScrollView keyboardShouldPersistTaps="handled">
@@ -588,7 +605,6 @@ export default function MapDisplay({
                   </ScrollView>
                 </View>
               )}
-              {/* Bouton de confirmation (Adaptatif Bleu/Orange) */}
               {selectedLocation && destination.length > 0 && (
                 <TouchableOpacity 
                   style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
@@ -609,7 +625,6 @@ export default function MapDisplay({
                   </View>
                 </TouchableOpacity>
               )}
-              {/* Barre de recherche */}
               <View style={styles.searchBar}>
                 <Ionicons name="search" size={22} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} style={{marginRight: 10}} />
                 <TextInput style={styles.input} placeholder={activeService === 'delivery' ? "Où envoyer le colis ?" : "Où allez-vous ?"} value={destination} onChangeText={async (t) => {
@@ -625,12 +640,12 @@ export default function MapDisplay({
             </View>
           )}
 
-          {/* ✅ PHASE 2 : FORMULAIRE COLIS (Affiche seulement après clic sur SUIVANT) */}
+          {/* ✅ PHASE 2 : FORMULAIRE COLIS */}
           {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
             <DeliveryForm onConfirm={handleDeliveryOrder} onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} />
           )}
 
-          {/* ✅ IDENTITY CARD (MAINTENU AVEC BOUTON ANNULER) */}
+          {/* ✅ IDENTITY CARD */}
           {(rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'pending') && partnerInfo && (
             <View style={styles.identityCard}>
               <View style={styles.idHeader}>
@@ -701,7 +716,7 @@ export default function MapDisplay({
         </View>
       </KeyboardAvoidingView>
 
-      {/* Modals Discussion & Résumé (MAINTENUS) */}
+      {/* Modals Discussion & Résumé */}
       <Modal visible={showChat} animationType="slide" transparent={false}>
         <View style={styles.chatContainer}>
           <View style={styles.chatHeader}>
@@ -746,6 +761,9 @@ const styles = StyleSheet.create({
   keyboardContainer: { flex: 1, justifyContent: 'flex-end' },
   gpsBtn: { position: 'absolute', right: 20, bottom: 220, backgroundColor: 'white', padding: 12, borderRadius: 30, elevation: 5, zIndex: 10 },
   overlay: { padding: 20, paddingBottom: 110 },
+  pinReminder: { position: 'absolute', top: 60, right: 20, backgroundColor: '#f97316', padding: 10, borderRadius: 15, alignItems: 'center', elevation: 10, zIndex: 100 },
+  pinLabel: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  pinValue: { color: '#fff', fontSize: 24, fontWeight: '900' },
   identityCard: { backgroundColor: '#fff', borderRadius: 25, padding: 15, marginBottom: 15, elevation: 10 },
   idHeader: { flexDirection: 'row', alignItems: 'center' },
   avatarBox: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
