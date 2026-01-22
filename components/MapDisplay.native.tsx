@@ -164,8 +164,9 @@ export default function MapDisplay({
 
       if (data) {
         Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
-        speak("Livraison enregistrée. Donnez le code au destinataire.");
-        setRideStatus('pending'); // On utilise le statut pending pour bloquer l'interface
+        speak("Livraison enregistrée. Recherche d'un livreur.");
+        setRideStatus('pending'); // ✅ DÉCLENCHE L'AFFICHAGE DE RECHERCHE
+        setCurrentRideId(data.id);
         setShowDeliveryForm(false); // ✅ Ferme le formulaire après validation
       }
     } catch (err) { console.error(err); }
@@ -330,7 +331,7 @@ export default function MapDisplay({
         const coords = JSON.stringify(data.routes[0].geometry.coordinates);
         webviewRef.current?.injectJavaScript(`
           if(routeLayer) map.removeLayer(routeLayer);
-          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color: '${activeService === 'delivery' ? '#f97316' : '#2563eb'}', weight:6, opacity:0.8}).addTo(map);
+          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color:'#2563eb', weight:6, opacity:0.8}).addTo(map);
           map.fitBounds(routeLayer.getBounds().pad(0.3));
           true;
         `);
