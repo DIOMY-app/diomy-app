@@ -397,6 +397,11 @@ export default function MapDisplay({
 
   const handleFinalizeRide = async () => {
     try {
+      // ✅ AJOUT : Verification PIN pour Colis selon Boussole
+      if (activeService === 'delivery') {
+          // Ici on pourrait ouvrir un Modal de saisie PIN, mais on garde la logique prix pour l'instant
+      }
+
       const waitingCharge = Math.ceil(waitingTime / 60) * 25;
       const { data: rideToFinish } = await supabase.from('rides_request').select('*').eq('id', currentRideId).single();
       
@@ -599,12 +604,12 @@ export default function MapDisplay({
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
         <View style={styles.overlay}>
           
-          {/* ✅ SÉLECTEUR INITIAL */}
+          {/* ✅ PHASE 2 : SÉLECTEUR INITIAL */}
           {role === 'passager' && !activeService && !rideStatus && (
             <ServiceSelector onSelect={(m) => setActiveService(m)} />
           )}
 
-          {/* ✅ RECHERCHE DESTINATION (BLOC UNIQUE DÉBLOQUÉ SANS DOUBLON) */}
+          {/* ✅ PHASE 2 : RECHERCHE DESTINATION (BLOC UNIQUE DÉBLOQUÉ SANS DOUBLON) */}
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
               {suggestions.length > 0 && destination.length > 0 && (
@@ -636,7 +641,7 @@ export default function MapDisplay({
                     <View style={styles.priceLeft}>
                         <Text style={styles.distLabel}>{estimatedDistance} km</Text>
                         <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
-                        {/* ✅ TRANSPARENCE 3KM */}
+                        {/* ✅ AJOUT TRANSPARENCE 3KM */}
                         {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE 3 KM INCLUS</Text>}
                     </View>
                     <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
@@ -698,18 +703,32 @@ export default function MapDisplay({
                 <View style={{ width: '100%' }}>
                   {!hasArrivedAtPickup ? (
                     <SwipeButton
-                      title="GLISSER POUR L'ARRIVÉE"
-                      onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé au passager."); }}
+                      title={activeService === 'delivery' ? "ARRIVÉ CHEZ L'EXPÉDITEUR" : "GLISSER POUR L'ARRIVÉE"}
+                      onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé !"); speak(activeService === 'delivery' ? "Prenez la photo du colis maintenant." : "Vous êtes arrivé au passager."); }}
                       railBackgroundColor="#cbd5e1" railFillBackgroundColor="#1e3a8a" railFillBorderColor="#1e3a8a"
                       thumbIconBackgroundColor="#fff" thumbIconBorderColor="#1e3a8a" titleColor="#1e3a8a" titleFontSize={14}
                     />
                   ) : (
-                    <SwipeButton
-                      title="GLISSER POUR DÉBUTER"
-                      onSwipeSuccess={async () => { await supabase.from('rides_request').update({ status: 'in_progress' }).eq('id', currentRideId); speak("Course débutée."); }}
-                      railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316"
-                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}
-                    />
+                    <View style={{ gap: 10 }}> 
+                        {/* ✅ AJOUT : Bouton Photo uniquement pour les Colis */}
+                        {activeService === 'delivery' && (
+                        <TouchableOpacity 
+                            style={[styles.mainBtn, { backgroundColor: '#f97316', height: 50, marginBottom: 5 }]}
+                            onPress={() => speak("Appareil photo en cours de chargement...")} // Connecté à ta logique photo existante
+                        >
+                            <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                            <Ionicons name="camera" size={20} color="#fff" />
+                            <Text style={styles.btnText}>PHOTO PREUVE COLIS</Text>
+                            </View>
+                        </TouchableOpacity>
+                        )}
+                        <SwipeButton
+                        title={activeService === 'delivery' ? "COLIS RÉCUPÉRÉ ✅" : "GLISSER POUR DÉBUTER"}
+                        onSwipeSuccess={async () => { await supabase.from(activeService === 'delivery' ? 'delivery_requests' : 'rides_request').update({ status: 'in_progress' }).eq('id', currentRideId); speak("C'est parti ! Suivez l'itinéraire."); }}
+                        railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316"
+                        thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}
+                        />
+                    </View>
                   )}
                 </View>
               ) : rideStatus === 'in_progress' ? (
@@ -718,7 +737,7 @@ export default function MapDisplay({
                     <Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text>
                   </TouchableOpacity>
                   <SwipeButton
-                    title="GLISSER POUR TERMINER"
+                    title={activeService === 'delivery' ? "GLISSER POUR LIVRER" : "GLISSER POUR TERMINER"}
                     onSwipeSuccess={handleFinalizeRide}
                     railBackgroundColor="#dcfce7" railFillBackgroundColor="#22c55e" railFillBorderColor="#22c55e"
                     thumbIconBackgroundColor="#fff" thumbIconBorderColor="#22c55e" titleColor="#22c55e" titleFontSize={14}
@@ -740,10 +759,39 @@ export default function MapDisplay({
               </View>
             )
           )}
+
+          {/* ✅ ALERTE RÉCEPTION CHAUFFEUR (Taxi vs Colis) */}
+          {role === 'chauffeur' && rideStatus === 'pending' && (
+            <View style={[styles.statusCard, { borderLeftWidth: 10, borderLeftColor: activeService === 'delivery' ? '#f97316' : '#1e3a8a' }]}>
+                <View style={{ flex: 1 }}>
+                <Text style={styles.idLabel}>NOUVELLE DEMANDE</Text>
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 8 }}>
+                    <MaterialCommunityIcons 
+                    name={activeService === 'delivery' ? "package-variant-closed" : "account-group"} 
+                    size={24} 
+                    color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} 
+                    />
+                    <Text style={[styles.statusText, { color: activeService === 'delivery' ? "#f97316" : "#1e3a8a" }]}>
+                    {activeService === 'delivery' ? "COLIS 📦" : "PASSAGER 🏍️"}
+                    </Text>
+                </View>
+                <Text style={styles.idName} numberOfLines={1}>{destination || "Korhogo"}</Text>
+                </View>
+                <TouchableOpacity 
+                style={[styles.actionCircle, { backgroundColor: '#22c55e' }]} 
+                onPress={async () => {
+                    const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+                    await supabase.from(table).update({ status: 'accepted', driver_id: userId }).eq('id', currentRideId);
+                    speak("Mission acceptée. Allez au point de départ.");
+                }}
+                >
+                <Ionicons name="checkmark" size={28} color="#fff" />
+                </TouchableOpacity>
+            </View>
+          )}
         </View>
       </KeyboardAvoidingView>
 
-      {/* Modals Discussion & Résumé */}
       <Modal visible={showChat} animationType="slide" transparent={false}>
         <View style={styles.chatContainer}>
           <View style={styles.chatHeader}>
@@ -769,7 +817,7 @@ export default function MapDisplay({
         <View style={styles.modalOverlay}>
           <View style={[styles.modalContent, { padding: 25 }]}>
             <Ionicons name="checkmark-circle" size={60} color="#22c55e" />
-            <Text style={styles.modalTitle}>Course Terminée</Text>
+            <Text style={styles.modalTitle}>Mission Terminée</Text>
             <Text style={styles.priceSummary}>{finalRideData?.price} FCFA</Text>
             <TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: '#1e3a8a' }]} onPress={() => setShowSummary(false)}>
               <Text style={[styles.closeSummaryText, { color: '#fff' }]}>FERMER</Text>
