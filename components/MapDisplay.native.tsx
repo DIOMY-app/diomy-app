@@ -11,6 +11,7 @@ import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
 import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router'; 
+import * as ImagePicker from 'expo-image-picker';
 import SwipeButton from 'react-native-swipe-button'; 
 
 // ✅ NOUVEAUX IMPORTS PHASE 2 (Cloisonnement)
@@ -57,11 +58,22 @@ export default function MapDisplay({
   const [activeService, setActiveService] = useState<'transport' | 'delivery' | null>(null);
   const [showDeliveryForm, setShowDeliveryForm] = useState(false); 
   
+  // ✅ ÉTAPE 4 : ÉTAT TAILLE DE COLIS
+  const [packageSize, setPackageSize] = useState<'petit' | 'moyen' | 'grand'>('petit');
+
   // ✅ ÉTATS AJOUTÉS SÉCURITÉ PHASE 2
   const [deliveryPin, setDeliveryPin] = useState<string | null>(null); 
   const [showPinModal, setShowPinModal] = useState(false);
   const [enteredPin, setEnteredPin] = useState('');
   const hasNotifiedProximity = useRef(false);
+
+  // ✅ ÉTATS ÉTAPE 1 : TIMER & RECHERCHE
+  const [countdown, setCountdown] = useState(30);
+  const timerRef = useRef<any>(null);
+
+  // ✅ ÉTATS ÉTAPE 2 & 3 : BACK-TO-BACK & ETA
+  const hasOpenedAvailability = useRef(false);
+  const [estimatedTime, setEstimatedTime] = useState<number | null>(null);
 
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
@@ -106,6 +118,16 @@ export default function MapDisplay({
 
   const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
 
+  // ✅ ÉTAPE 4 : FONCTION DE CALCUL DU PRIX DE BASE
+  const getBasePrice = () => {
+    if (activeService === 'delivery') {
+      if (packageSize === 'petit') return 500;
+      if (packageSize === 'moyen') return 750;
+      if (packageSize === 'grand') return 1000;
+    }
+    return 250; // Prix de base Taxi
+  };
+
   const speak = async (text: string) => {
     try {
       await Speech.stop();
@@ -113,12 +135,47 @@ export default function MapDisplay({
     } catch (e) { console.error("Speech error:", e); }
   };
 
-  // ✅ FONCTION NOTIFICATION PUSH GRATUITE
   const sendPushNotification = async (title: string, body: string) => {
     await Notifications.scheduleNotificationAsync({
       content: { title, body, sound: true, priority: 'high' },
       trigger: null,
     });
+  };
+
+  useEffect(() => {
+    if (role === 'chauffeur' && rideStatus === 'pending') {
+      setCountdown(30);
+      timerRef.current = setInterval(() => {
+        setCountdown((prev) => {
+          if (prev <= 1) {
+            handleRejectRide(); 
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    } else {
+      if (timerRef.current) clearInterval(timerRef.current);
+    }
+    return () => { if (timerRef.current) clearInterval(timerRef.current); };
+  }, [rideStatus, role]);
+
+  const handleRejectRide = async () => {
+    if (timerRef.current) clearInterval(timerRef.current);
+    speak("Demande expirée.");
+    resetSearch();
+  };
+
+  const handleAcceptRide = async () => {
+    if (!currentRideId) return;
+    if (timerRef.current) clearInterval(timerRef.current);
+    try {
+      const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+      await supabase.from(table).update({ status: 'accepted' }).eq('id', currentRideId);
+      speak("Course acceptée.");
+    } catch (err) {
+      console.error("Erreur acceptation:", err);
+    }
   };
 
   const handleCancelRide = async () => {
@@ -175,9 +232,10 @@ export default function MapDisplay({
         recipient_name: deliveryData.recipientName,
         recipient_phone: deliveryData.recipientPhone,
         package_type: deliveryData.packageType,
+        package_size: packageSize, // Enregistrement de la taille
         verification_code: pinCode,
         status: 'pending',
-        price: estimatedPrice || 500
+        price: estimatedPrice || getBasePrice()
       }]).select().single();
 
       if (data) {
@@ -290,13 +348,21 @@ export default function MapDisplay({
           const { latitude, longitude } = location.coords;
           const currentPos = { lat: latitude, lon: longitude };
 
-          // ✅ LOGIQUE PROXIMITÉ 500M (Phase 2)
-          if (role === 'chauffeur' && rideStatus === 'in_progress' && !hasNotifiedProximity.current && selectedLocation) {
+          if (role === 'chauffeur' && rideStatus === 'in_progress' && selectedLocation) {
             const dToDest = calculateDistance(latitude, longitude, selectedLocation.lat, selectedLocation.lon) * 1000;
-            if (dToDest < 500) {
+            
+            if (dToDest < 500 && !hasNotifiedProximity.current) {
               hasNotifiedProximity.current = true;
               sendMessage("🚀 Je suis à moins de 500m de l'arrivée !");
               sendPushNotification("DIOMY", "Votre colis arrive dans 2 minutes !");
+            }
+
+            if (dToDest < 300 && !hasOpenedAvailability.current) {
+              hasOpenedAvailability.current = true;
+              supabase.from('conducteurs')
+                .update({ is_online: true })
+                .eq('id', userId)
+                .then(() => console.log("Flux optimisé : Chauffeur ouvert aux nouvelles demandes"));
             }
           }
 
@@ -357,6 +423,9 @@ export default function MapDisplay({
       const response = await fetch(url);
       const data = await response.json();
       if (data.routes?.[0]) {
+        const durationInMinutes = Math.ceil((data.routes[0].duration / 60) + 2);
+        setEstimatedTime(durationInMinutes);
+
         const coords = JSON.stringify(data.routes[0].geometry.coordinates);
         webviewRef.current?.injectJavaScript(`
           if(routeLayer) map.removeLayer(routeLayer);
@@ -382,7 +451,6 @@ export default function MapDisplay({
     } else if (status === 'in_progress') {
       speak("Course débutée.");
       setRealTraveledDistance(0); 
-      // Pour les colis, la destination est dans delivery_lat/lon
       const destLat = activeService === 'delivery' ? ride.delivery_lat : ride.dest_lat;
       const destLon = activeService === 'delivery' ? ride.delivery_lon : ride.dest_lon;
       await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, destLat, destLon);
@@ -401,7 +469,7 @@ export default function MapDisplay({
       setEstimatedDistance(distanceKm.toFixed(1));
       
       const isColis = activeService === 'delivery';
-      const basePrice = isColis ? 500 : 250;
+      const basePrice = getBasePrice(); // Utilisation de la nouvelle logique Étape 4
       const threshold = isColis ? 3.0 : 1.5; 
       const price = Math.ceil((basePrice + (distanceKm > threshold ? (distanceKm - threshold) * 100 : 0)) / 50) * 50;
       setEstimatedPrice(price);
@@ -415,7 +483,6 @@ export default function MapDisplay({
     }
   };
 
-  // ✅ VÉRIFICATION PIN CHAUFFEUR
   const handleVerifyPinAndFinish = async () => {
     const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
     const { data: ride } = await supabase.from(table).select('verification_code').eq('id', currentRideId).single();
@@ -426,18 +493,72 @@ export default function MapDisplay({
     handleFinalizeRide();
   };
 
+  // ✅ ÉTAPE 7 : FONCTION PHOTO (CORRIGÉE)
+  const handleCaptureProof = async () => {
+    const { status } = await ImagePicker.requestCameraPermissionsAsync();
+    if (status === 'granted') {
+      const result = await ImagePicker.launchCameraAsync({
+        quality: 0.5,
+        allowsEditing: false,
+      });
+
+      if (!result.canceled) {
+        speak("Photo enregistrée.");
+        Alert.alert("DIOMY", "Preuve photo capturée avec succès !");
+        sendMessage("📸 Preuve photo capturée par le chauffeur.");
+      }
+    } else {
+      Alert.alert("DIOMY", "Accès caméra refusé.");
+    }
+  };
+
+  // ✅ ÉTAPE 8 : LOGIQUE FAVORIS (CORRIGÉE)
+  const handleSaveToFavorites = async (lat: number, lon: number, name: string) => {
+    if (!userId) return;
+    try {
+      const { error } = await supabase
+        .from('favoris_marchands')
+        .insert([{ user_id: userId, label: name, address_name: name, lat, lon }]);
+
+      if (error) throw error;
+      
+      speak("Adresse enregistrée.");
+      Alert.alert("DIOMY", "⭐ Adresse ajoutée à votre carnet !");
+    } catch (err) {
+      Alert.alert("Erreur", "Impossible d'enregistrer cette adresse.");
+      console.error(err);
+    }
+  };
+
+  // ✅ ÉTAPE 5 : FINALISATION (SUITE DU CODE)
   const handleFinalizeRide = async () => {
     try {
-      const waitingCharge = Math.ceil(waitingTime / 60) * 25;
-      const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-      const { data: rideToFinish } = await supabase.from(table).select('*').eq('id', currentRideId).single();
       const isColis = activeService === 'delivery';
+      const table = isColis ? 'delivery_requests' : 'rides_request';
+      const { data: rideToFinish } = await supabase.from(table).select('*').eq('id', currentRideId).single();
       
+      const waitingCharge = Math.ceil(waitingTime / 60) * 25;
       const threshold = isColis ? 3.0 : 1.5;
-      const basePrice = isColis ? 500 : 250;
+      const basePrice = getBasePrice();
+      
+      // Prix final payé par le client
       const finalPrice = Math.ceil((basePrice + (realTraveledDistance > threshold ? (realTraveledDistance - threshold) * 100 : 0) + waitingCharge) / 50) * 50;
       
-      await supabase.from(table).update({ status: 'completed', price: finalPrice }).eq('id', currentRideId);
+      // 1. Déterminer le taux de commission
+      const commissionRate = isColis ? 0.15 : 0.12; 
+      
+      // 2. Calculer la commission brute et 3. Appliquer l'ARRONDI SUPÉRIEUR
+      const finalCommission = Math.ceil(finalPrice * commissionRate);
+      
+      // 4. Calculer le gain net du chauffeur (pour info ou log interne)
+      const netGain = finalPrice - finalCommission;
+
+      await supabase.from(table).update({ 
+        status: 'completed', 
+        price: finalPrice,
+        commission_amount: finalCommission // On enregistre la commission prélevée
+      }).eq('id', currentRideId);
+
       setFinalRideData({ ...rideToFinish, price: finalPrice });
       setShowSummary(true); 
       setIsWaiting(false);
@@ -463,12 +584,16 @@ export default function MapDisplay({
     lastProcessedRideId.current = null;
     hasNotifiedArrival.current = false;
     hasNotifiedProximity.current = false;
+    hasOpenedAvailability.current = false;
+    setEstimatedTime(null);
     setHasArrivedAtPickup(false);
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
     setActiveService(null); 
     setShowDeliveryForm(false); 
     setDeliveryPin(null);
     setEnteredPin('');
+    setPackageSize('petit'); // Reset taille
+    if (timerRef.current) clearInterval(timerRef.current);
     webviewRef.current?.injectJavaScript(`
       if(markers.p) map.removeLayer(markers.p);
       if(markers.d) map.removeLayer(markers.d);
@@ -626,7 +751,6 @@ export default function MapDisplay({
         />
       </View>
 
-      {/* ✅ MÉMOIRE CODE PIN (Badge permanent) */}
       {deliveryPin && (rideStatus === 'pending' || rideStatus === 'accepted' || rideStatus === 'in_progress') && (
         <View style={styles.pinReminder}>
           <Text style={styles.pinLabel}>CODE COLIS</Text>
@@ -639,12 +763,10 @@ export default function MapDisplay({
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
         <View style={styles.overlay}>
           
-          {/* ✅ SÉLECTEUR INITIAL */}
           {role === 'passager' && !activeService && !rideStatus && (
             <ServiceSelector onSelect={(m) => setActiveService(m)} />
           )}
 
-          {/* ✅ RECHERCHE DESTINATION */}
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
               {suggestions.length > 0 && destination.length > 0 && (
@@ -663,7 +785,7 @@ export default function MapDisplay({
                   style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
                   onPress={async () => {
                     if (activeService === 'transport') {
-                      const { data: drivers } = await supabase.rpc('find_nearest_driver', { px_lat: pickupLocation?.lat, px_lon: pickupLocation?.lon, max_dist: 1000 });
+                      const { data: drivers } = await supabase.rpc('find_nearest_driver', { px_lat: pickupLocation?.lat, px_lon: pickupLocation?.lon, max_dist: 2000 });
                       if (drivers?.[0]) {
                         const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon, price: estimatedPrice || 500 }]).select().single();
                         if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
@@ -676,15 +798,62 @@ export default function MapDisplay({
                     <View style={styles.priceLeft}>
                         <Text style={styles.distLabel}>{estimatedDistance} km</Text>
                         <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
-                        {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE 3 KM INCLUS</Text>}
+                        {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE {packageSize.toUpperCase()} INCLUS</Text>}
                     </View>
                     <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
                   </View>
                 </TouchableOpacity>
               )}
+
+              {/* ✅ ÉTAPE 4.2 : SÉLECTEUR DE TAILLE POUR LE PASSAGER */}
+              {activeService === 'delivery' && !selectedLocation && (
+                <View style={{ marginBottom: 15 }}>
+                  <Text style={[styles.idLabel, { color: '#fff', marginBottom: 5 }]}>TAILLE DU COLIS</Text>
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    {[
+                      { id: 'petit', label: 'Petit', desc: '500F', icon: 'mail-outline' },
+                      { id: 'moyen', label: 'Moyen', desc: '750F', icon: 'cube-outline' },
+                      { id: 'grand', label: 'Grand', desc: '1000F', icon: 'basket-outline' }
+                    ].map((item) => (
+                      <TouchableOpacity
+                        key={item.id}
+                        style={{
+                          flex: 1,
+                          padding: 10,
+                          borderRadius: 12,
+                          borderWidth: 2,
+                          borderColor: packageSize === item.id ? '#fff' : 'rgba(255,255,255,0.3)',
+                          backgroundColor: packageSize === item.id ? 'rgba(255,255,255,0.2)' : 'transparent',
+                          alignItems: 'center'
+                        }}
+                        onPress={() => {
+                          setPackageSize(item.id as any);
+                          speak(`Taille ${item.label} sélectionnée`);
+                        }}
+                      >
+                        <Ionicons name={item.icon as any} size={20} color="#fff" />
+                        <Text style={{ fontWeight: 'bold', fontSize: 11, color: '#fff' }}>{item.label}</Text>
+                        <Text style={{ fontSize: 9, color: '#fff' }}>{item.desc}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </View>
+                </View>
+              )}
+
               <View style={styles.searchBar}>
+                {/* ✅ BOUTON ÉTOILE */}
+                {selectedLocation && (
+                  <TouchableOpacity 
+                    style={{ marginRight: 12 }} 
+                    onPress={() => handleSaveToFavorites(selectedLocation.lat, selectedLocation.lon, destination)}
+                  >
+                    <Ionicons name="star" size={26} color="#eab308" />
+                  </TouchableOpacity>
+                )}
+
                 <Ionicons name="search" size={22} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} style={{marginRight: 10}} />
                 <TextInput style={styles.input} placeholder={activeService === 'delivery' ? "Où envoyer le colis ?" : "Où allez-vous ?"} value={destination} onChangeText={async (t) => {
+
                   setDestination(t);
                   if (t.length === 0) resetSearch();
                   else if (t.length > 2) {
@@ -697,13 +866,11 @@ export default function MapDisplay({
             </View>
           )}
 
-          {/* ✅ PHASE 2 : FORMULAIRE COLIS */}
           {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
             <DeliveryForm onConfirm={handleDeliveryOrder} onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} />
           )}
 
-          {/* ✅ IDENTITY CARD */}
-          {(rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'pending') && partnerInfo && (
+          {(rideStatus === 'accepted' || rideStatus === 'in_progress') && partnerInfo && (
             <View style={styles.identityCard}>
               <View style={styles.idHeader}>
                 <View style={styles.avatarBox}>{partnerInfo.avatar_url ? <Image source={{ uri: partnerInfo.avatar_url }} style={styles.avatarImg} /> : <Ionicons name="person" size={28} color="#94a3b8" />}</View>
@@ -720,6 +887,16 @@ export default function MapDisplay({
                   <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#22c55e'}]} onPress={() => Linking.openURL(`tel:${partnerInfo.phone_number}`)}><Ionicons name="call" size={20} color="#fff" /></TouchableOpacity>
                 </View>
               </View>
+
+              {role === 'passager' && rideStatus === 'accepted' && estimatedTime && (
+                <View style={styles.waitingIndicator}>
+                  <Ionicons name="time-outline" size={16} color="#1e3a8a" />
+                  <Text style={[styles.waitingText, { color: '#1e3a8a' }]}>
+                      Arrivée prévue dans environ {estimatedTime} min
+                  </Text>
+                </View>
+              )}
+
               {isWaiting && (
                 <View style={styles.waitingIndicator}>
                   <ActivityIndicator size="small" color="#f59e0b" />
@@ -733,6 +910,36 @@ export default function MapDisplay({
             <View style={styles.driverPane}>
               {!rideStatus && <View style={styles.scoreBadge}><MaterialCommunityIcons name="star-circle" size={22} color="#eab308" /><Text style={styles.scoreText}>Fiabilité : {userScore}/100</Text></View>}
               
+              {rideStatus === 'pending' && (
+                <View style={[styles.identityCard, { borderLeftWidth: 5, borderLeftColor: '#ef4444' }]}>
+                  <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
+                    <View>
+                      <Text style={[styles.idLabel, { color: '#ef4444' }]}>NOUVELLE DEMANDE</Text>
+                      <Text style={styles.idName}>Un client vous attend !</Text>
+                    </View>
+                    <View style={{ backgroundColor: '#ef4444', width: 45, height: 45, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}>
+                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>{countdown}</Text>
+                    </View>
+                  </View>
+
+                  <View style={{ flexDirection: 'row', gap: 10 }}>
+                    <TouchableOpacity 
+                      style={[styles.mainBtn, { flex: 1, backgroundColor: '#94a3b8', height: 50 }]} 
+                      onPress={handleRejectRide}
+                    >
+                      <Text style={styles.btnText}>IGNORER</Text>
+                    </TouchableOpacity>
+                    
+                    <TouchableOpacity 
+                      style={[styles.mainBtn, { flex: 2, backgroundColor: '#22c55e', height: 50 }]} 
+                      onPress={handleAcceptRide}
+                    >
+                      <Text style={styles.btnText}>ACCEPTER (30s)</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
+
               {rideStatus === 'accepted' ? (
                 <View style={{ width: '100%' }}>
                   {!hasArrivedAtPickup ? (
@@ -757,6 +964,20 @@ export default function MapDisplay({
                 </View>
               ) : rideStatus === 'in_progress' ? (
                 <View style={{ gap: 10 }}>
+                  
+                  {/* ✅ BOUTON PHOTO ÉTAPE 7 */}
+                  {activeService === 'delivery' && (
+                    <TouchableOpacity 
+                      style={[styles.mainBtn, { backgroundColor: '#64748b', height: 45, marginBottom: 5 }]} 
+                      onPress={handleCaptureProof}
+                    >
+                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
+                        <Ionicons name="camera" size={22} color="#fff" style={{ marginRight: 10 }} />
+                        <Text style={styles.btnText}>PHOTO PREUVE</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+
                   <TouchableOpacity style={[styles.mainBtn, {backgroundColor: isWaiting ? '#ef4444' : '#f59e0b', height: 45}]} onPress={toggleWaiting}>
                     <Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text>
                   </TouchableOpacity>
@@ -767,7 +988,7 @@ export default function MapDisplay({
                     thumbIconBackgroundColor="#fff" thumbIconBorderColor="#22c55e" titleColor="#22c55e" titleFontSize={14}
                   />
                 </View>
-              ) : (
+              ) : !rideStatus && (
                 <TouchableOpacity style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} onPress={handleToggleOnline}>
                   <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
                 </TouchableOpacity>
@@ -819,7 +1040,6 @@ export default function MapDisplay({
         </View>
       </Modal>
 
-      {/* ✅ MODAL SAISIE PIN SÉCURISÉ */}
       <Modal visible={showPinModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
