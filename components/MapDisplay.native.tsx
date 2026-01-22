@@ -165,8 +165,7 @@ export default function MapDisplay({
       if (data) {
         Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
         speak("Livraison enregistrée. Donnez le code au destinataire.");
-        setRideStatus('pending'); // ✅ ACTIVE LA RECHERCHE VISUELLE
-        setCurrentRideId(data.id);
+        setRideStatus('pending'); // On utilise le statut pending pour bloquer l'interface
         setShowDeliveryForm(false); // ✅ Ferme le formulaire après validation
       }
     } catch (err) { console.error(err); }
@@ -331,7 +330,7 @@ export default function MapDisplay({
         const coords = JSON.stringify(data.routes[0].geometry.coordinates);
         webviewRef.current?.injectJavaScript(`
           if(routeLayer) map.removeLayer(routeLayer);
-          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color:'#2563eb', weight:6, opacity:0.8}).addTo(map);
+          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color: '${activeService === 'delivery' ? '#f97316' : '#2563eb'}', weight:6, opacity:0.8}).addTo(map);
           map.fitBounds(routeLayer.getBounds().pad(0.3));
           true;
         `);
@@ -366,9 +365,13 @@ export default function MapDisplay({
     if (r) {
       const distanceKm = r.distance / 1000;
       setEstimatedDistance(distanceKm.toFixed(1));
-      // ✅ TARIF BASE : 500F (Colis) ou 250F (Transport)
-      const base = activeService === 'delivery' ? 500 : 250;
-      const price = Math.ceil((base + (distanceKm > 1.5 ? (distanceKm - 1.5) * 100 : 0)) / 50) * 50;
+      
+      // ✅ MODIFICATION TARIF 3KM INCLUS (Phase 2)
+      const isColis = activeService === 'delivery';
+      const basePrice = isColis ? 500 : 250;
+      const kmThreshold = isColis ? 3.0 : 1.5; 
+
+      const price = Math.ceil((basePrice + (distanceKm > kmThreshold ? (distanceKm - kmThreshold) * 100 : 0)) / 50) * 50;
       setEstimatedPrice(price);
       
       webviewRef.current?.injectJavaScript(`
@@ -384,14 +387,13 @@ export default function MapDisplay({
     try {
       const waitingCharge = Math.ceil(waitingTime / 60) * 25;
       const { data: rideToFinish } = await supabase.from('rides_request').select('*').eq('id', currentRideId).single();
-      const initialPrice = rideToFinish?.price || 500;
-      const initialDistKm = parseFloat(estimatedDistance || "0");
-      let finalPrice = initialPrice;
-      if (realTraveledDistance > initialDistKm) {
-        finalPrice = Math.ceil(((activeService === 'delivery' ? 500 : 250) + (realTraveledDistance > 1.5 ? (realTraveledDistance - 1.5) * 100 : 0) + waitingCharge) / 50) * 50;
-      } else {
-        finalPrice = initialPrice + waitingCharge;
-      }
+      
+      const isColis = activeService === 'delivery';
+      const basePrice = isColis ? 500 : 250;
+      const kmThreshold = isColis ? 3.0 : 1.5;
+
+      const finalPrice = Math.ceil((basePrice + (realTraveledDistance > kmThreshold ? (realTraveledDistance - kmThreshold) * 100 : 0) + waitingCharge) / 50) * 50;
+      
       await supabase.from('rides_request').update({ status: 'completed', price: finalPrice }).eq('id', currentRideId);
       setFinalRideData({ ...rideToFinish, price: finalPrice, waitingCharge });
       setShowSummary(true); 
@@ -498,7 +500,7 @@ export default function MapDisplay({
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: table, filter: `status=eq.pending` }, (payload) => {
         const nr = payload.new as any;
         if (nr.driver_id === userId && isOnline && !rideStatus && !isHandlingModal.current && nr.id !== lastProcessedRideId.current) { 
-          speak("Nouvelle demande.");
+          speak("Nouvelle demande de course.");
           Vibration.vibrate([0, 500, 200, 500]);
         }
       }).subscribe();
@@ -591,7 +593,7 @@ export default function MapDisplay({
             <ServiceSelector onSelect={(m) => setActiveService(m)} />
           )}
 
-          {/* ✅ PHASE 2 : RECHERCHE DESTINATION (Visible pour les deux modes) */}
+          {/* ✅ PHASE 2 : RECHERCHE DESTINATION (Débloquée pour les deux modes) */}
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
               {suggestions.length > 0 && destination.length > 0 && (
@@ -620,7 +622,12 @@ export default function MapDisplay({
                     }
                   }}>
                   <View style={styles.priceContainer}>
-                    <View style={styles.priceLeft}><Text style={styles.distLabel}>{estimatedDistance} km</Text><Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text></View>
+                    <View style={styles.priceLeft}>
+                        <Text style={styles.distLabel}>{estimatedDistance} km</Text>
+                        <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
+                        {/* ✅ AJOUT TRANSPARENCE 3KM */}
+                        {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE 3 KM INCLUS</Text>}
+                    </View>
                     <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
                   </View>
                 </TouchableOpacity>
