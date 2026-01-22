@@ -57,7 +57,7 @@ export default function MapDisplay({
   // ✅ ÉTAT DE SÉLECTION DU SERVICE (Phase 2)
   const [activeService, setActiveService] = useState<'transport' | 'delivery' | null>(null);
   const [showDeliveryForm, setShowDeliveryForm] = useState(false); // ✅ AJOUTÉ pour activer le bouton
-  const [deliveryPin, setDeliveryPin] = useState<string | null>(null); // ✅ Pour mémoriser le code
+  const [deliveryPin, setDeliveryPin] = useState<string | null>(null); // ✅ AJOUTÉ pour mémoire PIN
 
   const isHandlingModal = useRef(false);
   const lastProcessedRideId = useRef<string | null>(null);
@@ -148,7 +148,7 @@ export default function MapDisplay({
   // ✅ COMMANDE COLIS (Phase 2)
   const handleDeliveryOrder = async (deliveryData: any) => {
     const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
-    setDeliveryPin(pinCode); // Mémorise le code
+    setDeliveryPin(pinCode); // Mémorise le PIN
     try {
       const { data } = await supabase.from('delivery_requests').insert([{
         sender_id: userId,
@@ -164,8 +164,8 @@ export default function MapDisplay({
 
       if (data) {
         Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
-        speak("Livraison enregistrée. Recherche d'un livreur.");
-        setRideStatus('pending'); // ✅ DÉCLENCHE L'AFFICHAGE DE RECHERCHE
+        speak("Livraison enregistrée. Donnez le code au destinataire.");
+        setRideStatus('pending'); // ✅ DÉCLENCHE LA RECHERCHE VISUELLE
         setCurrentRideId(data.id);
         setShowDeliveryForm(false); // ✅ Ferme le formulaire après validation
       }
@@ -331,7 +331,7 @@ export default function MapDisplay({
         const coords = JSON.stringify(data.routes[0].geometry.coordinates);
         webviewRef.current?.injectJavaScript(`
           if(routeLayer) map.removeLayer(routeLayer);
-          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color:'#2563eb', weight:6, opacity:0.8}).addTo(map);
+          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color: '${activeService === 'delivery' ? '#f97316' : '#2563eb'}', weight:6, opacity:0.8}).addTo(map);
           map.fitBounds(routeLayer.getBounds().pad(0.3));
           true;
         `);
@@ -367,12 +367,11 @@ export default function MapDisplay({
       const distanceKm = r.distance / 1000;
       setEstimatedDistance(distanceKm.toFixed(1));
       
-      // ✅ MODIFICATION TARIF 3KM INCLUS (Phase 2)
+      // ✅ LOGIQUE TARIF 500F / 3KM (Phase 2)
       const isColis = activeService === 'delivery';
-      const basePrice = isColis ? 500 : 250;
-      const kmThreshold = isColis ? 3.0 : 1.5; 
-
-      const price = Math.ceil((basePrice + (distanceKm > kmThreshold ? (distanceKm - kmThreshold) * 100 : 0)) / 50) * 50;
+      const base = isColis ? 500 : 250;
+      const threshold = isColis ? 3.0 : 1.5; 
+      const price = Math.ceil((base + (distanceKm > threshold ? (distanceKm - threshold) * 100 : 0)) / 50) * 50;
       setEstimatedPrice(price);
       
       webviewRef.current?.injectJavaScript(`
@@ -390,10 +389,9 @@ export default function MapDisplay({
       const { data: rideToFinish } = await supabase.from('rides_request').select('*').eq('id', currentRideId).single();
       
       const isColis = activeService === 'delivery';
-      const basePrice = isColis ? 500 : 250;
-      const kmThreshold = isColis ? 3.0 : 1.5;
-
-      const finalPrice = Math.ceil((basePrice + (realTraveledDistance > kmThreshold ? (realTraveledDistance - kmThreshold) * 100 : 0) + waitingCharge) / 50) * 50;
+      const base = isColis ? 500 : 250;
+      const threshold = isColis ? 3.0 : 1.5;
+      const finalPrice = Math.ceil((base + (realTraveledDistance > threshold ? (realTraveledDistance - threshold) * 100 : 0) + waitingCharge) / 50) * 50;
       
       await supabase.from('rides_request').update({ status: 'completed', price: finalPrice }).eq('id', currentRideId);
       setFinalRideData({ ...rideToFinish, price: finalPrice, waitingCharge });
@@ -422,7 +420,7 @@ export default function MapDisplay({
     setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
     setActiveService(null); // ✅ Retour au choix Phase 2
     setShowDeliveryForm(false); // ✅ RAZ
-    setDeliveryPin(null); // RAZ Pin
+    setDeliveryPin(null);
     webviewRef.current?.injectJavaScript(`
       if(markers.p) map.removeLayer(markers.p);
       if(markers.d) map.removeLayer(markers.d);
@@ -501,7 +499,7 @@ export default function MapDisplay({
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: table, filter: `status=eq.pending` }, (payload) => {
         const nr = payload.new as any;
         if (nr.driver_id === userId && isOnline && !rideStatus && !isHandlingModal.current && nr.id !== lastProcessedRideId.current) { 
-          speak("Nouvelle demande de course.");
+          speak("Nouvelle demande.");
           Vibration.vibrate([0, 500, 200, 500]);
         }
       }).subscribe();
@@ -720,7 +718,60 @@ export default function MapDisplay({
                 </TouchableOpacity>
               )}
             </View>
-          ) : null }
+          ) : (
+            <View style={styles.passengerPane}>
+              {role === 'passager' && activeService === 'transport' && !rideStatus && (
+                <>
+                  {suggestions.length > 0 && destination.length > 0 && (
+                    <View style={styles.suggestionsContainer}>
+                      <ScrollView keyboardShouldPersistTaps="handled">
+                        {suggestions.map((item, i) => (
+                          <TouchableOpacity key={i} style={styles.suggestionItem} onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}>
+                            <Ionicons name="location-outline" size={20} color="#64748b" /><Text style={styles.suggestionText}>{item.properties.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
+                    </View>
+                  )}
+                  {selectedLocation && destination.length > 0 && (
+                    <TouchableOpacity style={styles.confirmBtn} onPress={async () => {
+                      const { data: drivers } = await supabase.rpc('find_nearest_driver', { px_lat: pickupLocation?.lat, px_lon: pickupLocation?.lon, max_dist: 1000 });
+                      if (drivers?.[0]) {
+                        const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon, price: estimatedPrice || 500 }]).select().single();
+                        if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
+                      } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
+                    }}>
+                      <View style={styles.priceContainer}>
+                        <View style={styles.priceLeft}><Text style={styles.distLabel}>{estimatedDistance} km</Text><Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text></View>
+                        <Text style={styles.orderLabel}>COMMANDER</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+                  <View style={styles.searchBar}>
+                    <Ionicons name="search" size={22} color="#1e3a8a" style={{marginRight: 10}} />
+                    <TextInput style={styles.input} placeholder="Où allez-vous ?" value={destination} onChangeText={async (t) => {
+                      setDestination(t);
+                      if (t.length === 0) resetSearch();
+                      else if (t.length > 2) {
+                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=10`);
+                        const d = await res.json(); setSuggestions(d.features || []);
+                      }
+                    }} />
+                    {destination.length > 0 && <TouchableOpacity onPress={resetSearch}><Ionicons name="close-circle" size={20} color="#94a3b8" /></TouchableOpacity>}
+                  </View>
+                </>
+              )}
+              {rideStatus === 'pending' && (
+                <View style={styles.statusCard}>
+                  <ActivityIndicator color="#1e3a8a" />
+                  <Text style={styles.statusText}>Recherche...</Text>
+                  <TouchableOpacity style={{marginLeft: 'auto', backgroundColor: '#fee2e2', padding: 10, borderRadius: 10}} onPress={handleCancelRide}>
+                    <Ionicons name="trash" size={20} color="#ef4444" />
+                  </TouchableOpacity>
+                </View>
+              )}
+            </View>
+          )}
         </View>
       </KeyboardAvoidingView>
 
