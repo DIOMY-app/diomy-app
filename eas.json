@@ -7,7 +7,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_SUPABASE_URL": "https://pwhzvgfkmvuvpsshpxbx.supabase.co",
+        "EXPO_PUBLIC_SUPABASE_URL": "https://gmvlwhadpkojsevnljwe.supabase.co",
         "EXPO_PUBLIC_SUPABASE_ANON_KEY": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InB3aHp2Z2ZrbXZ1dnBzc2hweGJ4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjcxNzk0ODMsImV4cCI6MjA0Mjc1NTQ4M30.4i0kH7V0Z8Z5W7-zX1_S1nQ8E6Y9X3W1-9_2B5S4Z5A"
       }
     },
