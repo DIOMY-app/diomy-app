@@ -1,31 +1,31 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { StyleSheet, View, Text, TextInput, TouchableOpacity, ScrollView, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
-import * as Contacts from 'expo-contacts';
 
-export default function DeliveryForm({ onConfirm, onCancel }: { onConfirm: (data: any) => void, onCancel: () => void }) {
-  const [recipientName, setRecipientName] = useState('');
-  const [recipientPhone, setRecipientPhone] = useState('');
-  const [packageType, setPackageType] = useState('Petit');
+// ✅ INTERFACE MISE À JOUR : On définit ce que le formulaire reçoit
+interface DeliveryFormProps {
+  onConfirm: (data: any) => void;
+  onCancel: () => void;
+  onPickContact?: () => void;
+  recipientName: string;
+  recipientPhone: string;
+  setRecipientName: (val: string) => void;
+  setRecipientPhone: (val: string) => void;
+}
 
-  // ✅ FONCTION : Importation depuis le répertoire (Optimisée)
-  const handlePickContact = async () => {
-    const { status } = await Contacts.requestPermissionsAsync();
-    if (status === 'granted') {
-      const contact = await Contacts.presentContactPickerAsync();
-      if (contact) {
-        const name = contact.name || "";
-        const phone = contact.phoneNumbers?.[0]?.number?.replace(/\s/g, '') || "";
-        
-        setRecipientName(name);
-        setRecipientPhone(phone);
-      }
-    } else {
-      Alert.alert("DIOMY", "Accès aux contacts refusé.");
-    }
-  };
+export default function DeliveryForm({ 
+  onConfirm, 
+  onCancel, 
+  onPickContact, 
+  recipientName, 
+  recipientPhone, 
+  setRecipientName, 
+  setRecipientPhone 
+}: DeliveryFormProps) {
+  
+  const [packageType, setPackageType] = React.useState('Petit');
 
-  // ✅ FONCTION : Validation locale avant envoi
+  // ✅ FONCTION : Validation avant envoi
   const handleValidation = () => {
     if (!recipientName.trim() || !recipientPhone.trim()) {
       Alert.alert("DIOMY", "Veuillez renseigner le nom et le numéro du destinataire.");
@@ -77,16 +77,16 @@ export default function DeliveryForm({ onConfirm, onCancel }: { onConfirm: (data
             value={recipientPhone} 
             onChangeText={setRecipientPhone} 
           />
+          {/* ✅ LE BOUTON UTILISE MAINTENANT LA FONCTION DE MAPDISPLAY */}
           <TouchableOpacity 
             style={styles.contactBtn} 
-            onPress={handlePickContact}
+            onPress={onPickContact}
             activeOpacity={0.7}
           >
             <Ionicons name="people" size={22} color="#fff" />
           </TouchableOpacity>
         </View>
 
-        {/* ✅ BOUTON CORRIGÉ : zIndex et Retour Visuel */}
         <TouchableOpacity 
           style={styles.confirmBtn} 
           onPress={handleValidation}
@@ -142,7 +142,7 @@ const styles = StyleSheet.create({
     marginTop: 25, 
     alignItems: 'center', 
     elevation: 5,
-    zIndex: 9999 // S'assure d'être au dessus pour le clic
+    zIndex: 9999 
   },
   confirmBtnText: { color: '#fff', fontWeight: 'bold', fontSize: 16, letterSpacing: 1 }
 });

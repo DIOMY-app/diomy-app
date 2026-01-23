@@ -9,6 +9,7 @@ import * as Location from 'expo-location';
 import * as Speech from 'expo-speech';
 import * as Notifications from 'expo-notifications';
 import * as Device from 'expo-device';
+import * as Contacts from 'expo-contacts'; // ✅ AJOUTÉ ÉTAPE 6
 import { supabase } from '../lib/supabase';
 import { useRouter, useLocalSearchParams } from 'expo-router'; 
 import * as ImagePicker from 'expo-image-picker';
@@ -60,6 +61,10 @@ export default function MapDisplay({
   
   // ✅ ÉTAPE 4 : ÉTAT TAILLE DE COLIS
   const [packageSize, setPackageSize] = useState<'petit' | 'moyen' | 'grand'>('petit');
+
+  // ✅ ÉTAPE 6 : ÉTATS CONTACTS
+  const [recipientName, setRecipientName] = useState('');
+  const [recipientPhone, setRecipientPhone] = useState('');
 
   // ✅ ÉTATS AJOUTÉS SÉCURITÉ PHASE 2
   const [deliveryPin, setDeliveryPin] = useState<string | null>(null); 
@@ -125,7 +130,7 @@ export default function MapDisplay({
       if (packageSize === 'moyen') return 750;
       if (packageSize === 'grand') return 1000;
     }
-    return 250; // Prix de base Taxi
+    return 250; 
   };
 
   const speak = async (text: string) => {
@@ -140,6 +145,23 @@ export default function MapDisplay({
       content: { title, body, sound: true, priority: 'high' },
       trigger: null,
     });
+  };
+
+  // ✅ ÉTAPE 6 : FONCTION IMPORTATION CONTACT
+  const handlePickContact = async () => {
+    const { status } = await Contacts.requestPermissionsAsync();
+    if (status === 'granted') {
+      const contact = await Contacts.presentContactPickerAsync();
+      if (contact) {
+        const name = contact.name;
+        const phone = contact.phoneNumbers?.[0]?.number?.replace(/\s/g, '');             
+        setRecipientName(name);
+        setRecipientPhone(phone || "");
+        speak(`Contact ${name} ajouté`);
+      }
+    } else {
+      Alert.alert("Permission", "DIOMY a besoin d'accéder aux contacts.");
+    }
   };
 
   useEffect(() => {
@@ -232,7 +254,7 @@ export default function MapDisplay({
         recipient_name: deliveryData.recipientName,
         recipient_phone: deliveryData.recipientPhone,
         package_type: deliveryData.packageType,
-        package_size: packageSize, // Enregistrement de la taille
+        package_size: packageSize, 
         verification_code: pinCode,
         status: 'pending',
         price: estimatedPrice || getBasePrice()
@@ -469,7 +491,7 @@ export default function MapDisplay({
       setEstimatedDistance(distanceKm.toFixed(1));
       
       const isColis = activeService === 'delivery';
-      const basePrice = getBasePrice(); // Utilisation de la nouvelle logique Étape 4
+      const basePrice = getBasePrice(); 
       const threshold = isColis ? 3.0 : 1.5; 
       const price = Math.ceil((basePrice + (distanceKm > threshold ? (distanceKm - threshold) * 100 : 0)) / 50) * 50;
       setEstimatedPrice(price);
@@ -493,7 +515,6 @@ export default function MapDisplay({
     handleFinalizeRide();
   };
 
-  // ✅ ÉTAPE 7 : FONCTION PHOTO (CORRIGÉE)
   const handleCaptureProof = async () => {
     const { status } = await ImagePicker.requestCameraPermissionsAsync();
     if (status === 'granted') {
@@ -512,7 +533,6 @@ export default function MapDisplay({
     }
   };
 
-  // ✅ ÉTAPE 8 : LOGIQUE FAVORIS (CORRIGÉE)
   const handleSaveToFavorites = async (lat: number, lon: number, name: string) => {
     if (!userId) return;
     try {
@@ -521,7 +541,6 @@ export default function MapDisplay({
         .insert([{ user_id: userId, label: name, address_name: name, lat, lon }]);
 
       if (error) throw error;
-      
       speak("Adresse enregistrée.");
       Alert.alert("DIOMY", "⭐ Adresse ajoutée à votre carnet !");
     } catch (err) {
@@ -530,7 +549,6 @@ export default function MapDisplay({
     }
   };
 
-  // ✅ ÉTAPE 5 : FINALISATION (SUITE DU CODE)
   const handleFinalizeRide = async () => {
     try {
       const isColis = activeService === 'delivery';
@@ -540,23 +558,15 @@ export default function MapDisplay({
       const waitingCharge = Math.ceil(waitingTime / 60) * 25;
       const threshold = isColis ? 3.0 : 1.5;
       const basePrice = getBasePrice();
-      
-      // Prix final payé par le client
       const finalPrice = Math.ceil((basePrice + (realTraveledDistance > threshold ? (realTraveledDistance - threshold) * 100 : 0) + waitingCharge) / 50) * 50;
       
-      // 1. Déterminer le taux de commission
       const commissionRate = isColis ? 0.15 : 0.12; 
-      
-      // 2. Calculer la commission brute et 3. Appliquer l'ARRONDI SUPÉRIEUR
       const finalCommission = Math.ceil(finalPrice * commissionRate);
-      
-      // 4. Calculer le gain net du chauffeur (pour info ou log interne)
-      const netGain = finalPrice - finalCommission;
 
       await supabase.from(table).update({ 
         status: 'completed', 
         price: finalPrice,
-        commission_amount: finalCommission // On enregistre la commission prélevée
+        commission_amount: finalCommission 
       }).eq('id', currentRideId);
 
       setFinalRideData({ ...rideToFinish, price: finalPrice });
@@ -592,7 +602,9 @@ export default function MapDisplay({
     setShowDeliveryForm(false); 
     setDeliveryPin(null);
     setEnteredPin('');
-    setPackageSize('petit'); // Reset taille
+    setPackageSize('petit'); 
+    setRecipientName(''); // ✅ RESET CONTACT
+    setRecipientPhone(''); // ✅ RESET CONTACT
     if (timerRef.current) clearInterval(timerRef.current);
     webviewRef.current?.injectJavaScript(`
       if(markers.p) map.removeLayer(markers.p);
@@ -761,7 +773,7 @@ export default function MapDisplay({
       <TouchableOpacity style={styles.gpsBtn} onPress={() => getCurrentLocation(true)}><Ionicons name="locate" size={26} color="#1e3a8a" /></TouchableOpacity>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
-        <View style={styles.overlay}>
+        <View style={styles.overlay} pointerEvents="box-none">
           
           {role === 'passager' && !activeService && !rideStatus && (
             <ServiceSelector onSelect={(m) => setActiveService(m)} />
@@ -854,7 +866,6 @@ export default function MapDisplay({
               )}
 
               <View style={styles.searchBar}>
-                {/* ✅ BOUTON ÉTOILE */}
                 {selectedLocation && (
                   <TouchableOpacity 
                     style={{ marginRight: 12 }} 
@@ -878,7 +889,7 @@ export default function MapDisplay({
             </View>
           )}
 
-          {(rideStatus === 'accepted' || rideStatus === 'in_progress') && partnerInfo && (
+          {(rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'pending') && partnerInfo && (
             <View style={styles.identityCard}>
               <View style={styles.idHeader}>
                 <View style={styles.avatarBox}>{partnerInfo.avatar_url ? <Image source={{ uri: partnerInfo.avatar_url }} style={styles.avatarImg} /> : <Ionicons name="person" size={28} color="#94a3b8" />}</View>
@@ -895,16 +906,12 @@ export default function MapDisplay({
                   <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#22c55e'}]} onPress={() => Linking.openURL(`tel:${partnerInfo.phone_number}`)}><Ionicons name="call" size={20} color="#fff" /></TouchableOpacity>
                 </View>
               </View>
-
               {role === 'passager' && rideStatus === 'accepted' && estimatedTime && (
                 <View style={styles.waitingIndicator}>
                   <Ionicons name="time-outline" size={16} color="#1e3a8a" />
-                  <Text style={[styles.waitingText, { color: '#1e3a8a' }]}>
-                      Arrivée prévue dans environ {estimatedTime} min
-                  </Text>
+                  <Text style={[styles.waitingText, { color: '#1e3a8a' }]}>Arrivée prévue : ~{estimatedTime} min</Text>
                 </View>
               )}
-
               {isWaiting && (
                 <View style={styles.waitingIndicator}>
                   <ActivityIndicator size="small" color="#f59e0b" />
@@ -914,36 +921,19 @@ export default function MapDisplay({
             </View>
           )}
 
-          {role === 'chauffeur' ? (
+          {role === 'chauffeur' && (
             <View style={styles.driverPane}>
               {!rideStatus && <View style={styles.scoreBadge}><MaterialCommunityIcons name="star-circle" size={22} color="#eab308" /><Text style={styles.scoreText}>Fiabilité : {userScore}/100</Text></View>}
               
               {rideStatus === 'pending' && (
                 <View style={[styles.identityCard, { borderLeftWidth: 5, borderLeftColor: '#ef4444' }]}>
                   <View style={{ flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', marginBottom: 15 }}>
-                    <View>
-                      <Text style={[styles.idLabel, { color: '#ef4444' }]}>NOUVELLE DEMANDE</Text>
-                      <Text style={styles.idName}>Un client vous attend !</Text>
-                    </View>
-                    <View style={{ backgroundColor: '#ef4444', width: 45, height: 45, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}>
-                      <Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>{countdown}</Text>
-                    </View>
+                    <View><Text style={[styles.idLabel, { color: '#ef4444' }]}>NOUVELLE DEMANDE</Text><Text style={styles.idName}>Un client vous attend !</Text></View>
+                    <View style={{ backgroundColor: '#ef4444', width: 45, height: 45, borderRadius: 22, justifyContent: 'center', alignItems: 'center' }}><Text style={{ color: '#fff', fontWeight: 'bold', fontSize: 18 }}>{countdown}</Text></View>
                   </View>
-
                   <View style={{ flexDirection: 'row', gap: 10 }}>
-                    <TouchableOpacity 
-                      style={[styles.mainBtn, { flex: 1, backgroundColor: '#94a3b8', height: 50 }]} 
-                      onPress={handleRejectRide}
-                    >
-                      <Text style={styles.btnText}>IGNORER</Text>
-                    </TouchableOpacity>
-                    
-                    <TouchableOpacity 
-                      style={[styles.mainBtn, { flex: 2, backgroundColor: '#22c55e', height: 50 }]} 
-                      onPress={handleAcceptRide}
-                    >
-                      <Text style={styles.btnText}>ACCEPTER (30s)</Text>
-                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.mainBtn, { flex: 1, backgroundColor: '#94a3b8', height: 50 }]} onPress={handleRejectRide}><Text style={styles.btnText}>IGNORER</Text></TouchableOpacity>
+                    <TouchableOpacity style={[styles.mainBtn, { flex: 2, backgroundColor: '#22c55e', height: 50 }]} onPress={handleAcceptRide}><Text style={styles.btnText}>ACCEPTER</Text></TouchableOpacity>
                   </View>
                 </View>
               )}
@@ -951,138 +941,57 @@ export default function MapDisplay({
               {rideStatus === 'accepted' ? (
                 <View style={{ width: '100%' }}>
                   {!hasArrivedAtPickup ? (
-                    <SwipeButton
-                      title="GLISSER POUR L'ARRIVÉE"
-                      onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé."); }}
-                      railBackgroundColor="#cbd5e1" railFillBackgroundColor="#1e3a8a" railFillBorderColor="#1e3a8a"
-                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#1e3a8a" titleColor="#1e3a8a" titleFontSize={14}
-                    />
+                    <SwipeButton title="GLISSER POUR L'ARRIVÉE" onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé."); }} railBackgroundColor="#cbd5e1" railFillBackgroundColor="#1e3a8a" railFillBorderColor="#1e3a8a" thumbIconBackgroundColor="#fff" thumbIconBorderColor="#1e3a8a" titleColor="#1e3a8a" titleFontSize={14}/>
                   ) : (
-                    <SwipeButton
-                      title="GLISSER POUR DÉBUTER"
-                      onSwipeSuccess={async () => { 
-                        const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-                        await supabase.from(table).update({ status: 'in_progress' }).eq('id', currentRideId); 
-                        speak("Course débutée."); 
-                      }}
-                      railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316"
-                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}
-                    />
+                    <SwipeButton title="GLISSER POUR DÉBUTER" onSwipeSuccess={async () => { const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request'; await supabase.from(table).update({ status: 'in_progress' }).eq('id', currentRideId); speak("Course débutée."); }} railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316" thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}/>
                   )}
                 </View>
               ) : rideStatus === 'in_progress' ? (
                 <View style={{ gap: 10 }}>
-                  
-                  {/* ✅ BOUTON PHOTO ÉTAPE 7 */}
                   {activeService === 'delivery' && (
-                    <TouchableOpacity 
-                      style={[styles.mainBtn, { backgroundColor: '#64748b', height: 45, marginBottom: 5 }]} 
-                      onPress={handleCaptureProof}
-                    >
-                      <View style={{ flexDirection: 'row', alignItems: 'center' }}>
-                        <Ionicons name="camera" size={22} color="#fff" style={{ marginRight: 10 }} />
-                        <Text style={styles.btnText}>PHOTO PREUVE</Text>
-                      </View>
-                    </TouchableOpacity>
+                    <TouchableOpacity style={[styles.mainBtn, { backgroundColor: '#64748b', height: 45, marginBottom: 5 }]} onPress={handleCaptureProof}><View style={{ flexDirection: 'row', alignItems: 'center' }}><Ionicons name="camera" size={22} color="#fff" style={{ marginRight: 10 }} /><Text style={styles.btnText}>PHOTO PREUVE</Text></View></TouchableOpacity>
                   )}
-
-                  <TouchableOpacity style={[styles.mainBtn, {backgroundColor: isWaiting ? '#ef4444' : '#f59e0b', height: 45}]} onPress={toggleWaiting}>
-                    <Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text>
-                  </TouchableOpacity>
-                  <SwipeButton
-                    title={activeService === 'delivery' ? "LIVRER (Saisir PIN)" : "GLISSER POUR TERMINER"}
-                    onSwipeSuccess={() => activeService === 'delivery' ? setShowPinModal(true) : handleFinalizeRide()}
-                    railBackgroundColor="#dcfce7" railFillBackgroundColor="#22c55e" railFillBorderColor="#22c55e"
-                    thumbIconBackgroundColor="#fff" thumbIconBorderColor="#22c55e" titleColor="#22c55e" titleFontSize={14}
-                  />
+                  <TouchableOpacity style={[styles.mainBtn, {backgroundColor: isWaiting ? '#ef4444' : '#f59e0b', height: 45}]} onPress={toggleWaiting}><Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text></TouchableOpacity>
+                  <SwipeButton title={activeService === 'delivery' ? "LIVRER (Saisir PIN)" : "GLISSER POUR TERMINER"} onSwipeSuccess={() => activeService === 'delivery' ? setShowPinModal(true) : handleFinalizeRide()} railBackgroundColor="#dcfce7" railFillBackgroundColor="#22c55e" railFillBorderColor="#22c55e" thumbIconBackgroundColor="#fff" thumbIconBorderColor="#22c55e" titleColor="#22c55e" titleFontSize={14}/>
                 </View>
               ) : !rideStatus && (
-                <TouchableOpacity style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} onPress={handleToggleOnline}>
-                  <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
-                </TouchableOpacity>
+                <TouchableOpacity style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} onPress={handleToggleOnline}><Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text></TouchableOpacity>
               )}
             </View>
-          ) : (
-            rideStatus === 'pending' && (
-              <View style={styles.statusCard}>
-                <ActivityIndicator color="#1e3a8a" />
-                <Text style={styles.statusText}>Recherche de partenaire DIOMY...</Text>
-                <TouchableOpacity onPress={handleCancelRide}><Ionicons name="close-circle" size={30} color="#ef4444" /></TouchableOpacity>
-              </View>
-            )
           )}
         </View>
-
       </KeyboardAvoidingView>
 
       <Modal visible={showChat} animationType="slide" transparent={false}>
         <View style={styles.chatContainer}>
           <View style={styles.chatHeader}>
             <TouchableOpacity onPress={() => setShowChat(false)}><Ionicons name="chevron-back" size={28} color="#1e3a8a" /></TouchableOpacity>
-            <Text style={styles.chatTitle}>Discussion</Text>
-            <View style={{width: 28}} />
+            <Text style={styles.chatTitle}>Discussion</Text><View style={{width: 28}} />
           </View>
-          <ScrollView ref={chatScrollRef} style={styles.messagesList} onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}>
-            {chatMessages.map((msg, idx) => (
-              <View key={idx} style={[styles.messageBubble, msg.sender_id === userId ? styles.myMessage : styles.theirMessage]}>
-                <Text style={[styles.messageText, msg.sender_id === userId ? styles.myText : styles.theirText]}>{msg.content}</Text>
-              </View>
-            ))}
-          </ScrollView>
-          <View style={styles.chatInputArea}>
-            <TextInput style={styles.chatInput} placeholder="Écrivez votre message..." value={newMessage} onChangeText={setNewMessage} />
-            <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage()}><Ionicons name="send" size={24} color="#1e3a8a" /></TouchableOpacity>
-          </View>
+          <ScrollView ref={chatScrollRef} style={styles.messagesList} onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}>{chatMessages.map((msg, idx) => (<View key={idx} style={[styles.messageBubble, msg.sender_id === userId ? styles.myMessage : styles.theirMessage]}><Text style={[styles.messageText, msg.sender_id === userId ? styles.myText : styles.theirText]}>{msg.content}</Text></View>))}</ScrollView>
+          <View style={styles.chatInputArea}><TextInput style={styles.chatInput} placeholder="Écrivez votre message..." value={newMessage} onChangeText={setNewMessage} /><TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage()}><Ionicons name="send" size={24} color="#1e3a8a" /></TouchableOpacity></View>
         </View>
       </Modal>
 
       <Modal visible={showSummary} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { padding: 25 }]}>
-            <Ionicons name="checkmark-circle" size={60} color="#22c55e" />
-            <Text style={styles.modalTitle}>Terminé !</Text>
-            <Text style={styles.priceSummary}>{finalRideData?.price} FCFA</Text>
-            <TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: '#1e3a8a' }]} onPress={() => setShowSummary(false)}>
-              <Text style={[styles.closeSummaryText, { color: '#fff' }]}>FERMER</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
+        <View style={styles.modalOverlay}><View style={[styles.modalContent, { padding: 25 }]}><Ionicons name="checkmark-circle" size={60} color="#22c55e" /><Text style={styles.modalTitle}>Terminé !</Text><Text style={styles.priceSummary}>{finalRideData?.price} FCFA</Text><TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: '#1e3a8a' }]} onPress={() => setShowSummary(false)}><Text style={[styles.closeSummaryText, { color: '#fff' }]}>FERMER</Text></TouchableOpacity></View></View>
       </Modal>
 
      <Modal visible={showPinModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <MaterialCommunityIcons name="lock-check" size={50} color="#1e3a8a" />
-            <Text style={styles.modalTitle}>Vérification PIN</Text>
-            <Text style={{ textAlign: 'center', marginBottom: 20 }}>Demandez le code au destinataire pour valider.</Text>
-            <TextInput 
-              style={[styles.searchBar, { textAlign: 'center', fontSize: 30, letterSpacing: 10, width: '100%' }]} 
-              placeholder="0000" keyboardType="number-pad" maxLength={4} value={enteredPin} onChangeText={setEnteredPin} 
-            />
-            <TouchableOpacity style={[styles.mainBtn, { width: '100%', marginTop: 20, backgroundColor: '#22c55e' }]} onPress={handleVerifyPinAndFinish}>
-              <Text style={styles.btnText}>TERMINER LIVRAISON</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity>
-          </View>
-        </View>
+        <View style={styles.modalOverlay}><View style={styles.modalContent}><MaterialCommunityIcons name="lock-check" size={50} color="#1e3a8a" /><Text style={styles.modalTitle}>Vérification PIN</Text><Text style={{ textAlign: 'center', marginBottom: 20 }}>Demandez le code au destinataire pour valider.</Text><TextInput style={[styles.searchBar, { textAlign: 'center', fontSize: 30, letterSpacing: 10, width: '100%' }]} placeholder="0000" keyboardType="number-pad" maxLength={4} value={enteredPin} onChangeText={setEnteredPin} /><TouchableOpacity style={[styles.mainBtn, { width: '100%', marginTop: 20, backgroundColor: '#22c55e' }]} onPress={handleVerifyPinAndFinish}><Text style={styles.btnText}>TERMINER LIVRAISON</Text></TouchableOpacity><TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity></View></View>
       </Modal>
 
-      {/* ✅ RETOUR LOGIQUE HIER : LE FORMULAIRE TOUT EN BAS DU CODE (PRIORITÉ TACTILE MAXIMALE) */}
+      {/* ✅ FORMULAIRE LIVRAISON - POSITION ABSOLUE (PRIORITÉ TACTILE MAXIMALE) */}
       {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-        <View style={{ 
-          position: 'absolute', 
-          top: 80, 
-          left: 15, 
-          right: 15, 
-          zIndex: 999999,
-          elevation: 20 
-        }} pointerEvents="auto">
+        <View style={{ position: 'absolute', top: 80, left: 15, right: 15, zIndex: 999999, elevation: 20 }} pointerEvents="auto">
           <DeliveryForm 
             onConfirm={handleDeliveryOrder} 
-            onCancel={() => { 
-              setShowDeliveryForm(false); 
-              setActiveService(null); 
-            }} 
+            onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
+            onPickContact={handlePickContact}
+            recipientName={recipientName}
+            recipientPhone={recipientPhone}
+            setRecipientName={setRecipientName}
+            setRecipientPhone={setRecipientPhone}
           />
         </View>
       )}
