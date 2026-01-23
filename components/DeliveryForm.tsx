@@ -4,7 +4,7 @@ import { StyleSheet, View, Text, TextInput, TouchableOpacity, ScrollView, Alert 
 import { Ionicons } from '@expo/vector-icons';
 import * as Contacts from 'expo-contacts';
 
-export default function DeliveryForm({ onConfirm, onCancel }: { onConfirm: (data: any) => void, onCancel: () => void }) {
+export default function DeliveryForm({ onConfirm, onCancel, initialPrice }: { onConfirm: (data: any) => void, onCancel: () => void, initialPrice: number | null }) {
   const [recipientName, setRecipientName] = useState('');
   const [recipientPhone, setRecipientPhone] = useState('');
   const [packageType, setPackageType] = useState('Petit');
@@ -35,6 +35,13 @@ export default function DeliveryForm({ onConfirm, onCancel }: { onConfirm: (data
     // Appel de la fonction parente dans MapDisplay
     onConfirm({ recipientName, recipientPhone, packageType });
   };
+// ✅ LOGIQUE DE CALCUL DU PRIX DYNAMIQUE
+  const getDisplayPrice = () => {
+    const base = initialPrice || 500; 
+    if (packageType === 'Moyen') return base + 250;
+    if (packageType === 'Grand') return base + 500;
+    return base; // 'Petit'
+  };
 
   return (
     <View style={styles.container}>
@@ -87,14 +94,16 @@ export default function DeliveryForm({ onConfirm, onCancel }: { onConfirm: (data
           </TouchableOpacity>
         </View>
 
-        {/* ✅ BOUTON CORRIGÉ : zIndex et Retour Visuel */}
-        <TouchableOpacity 
-          style={styles.confirmBtn} 
-          onPress={handleValidation}
-          activeOpacity={0.8}
-        >
-          <Text style={styles.confirmBtnText}>VALIDER L'ENVOI</Text>
-        </TouchableOpacity>
+        {/* ✅ BOUTON CORRIGÉ : Affichage du prix dynamique */}
+        <TouchableOpacity 
+          style={styles.confirmBtn} 
+          onPress={handleValidation}
+          activeOpacity={0.8}
+        >
+          <Text style={styles.confirmBtnText}>
+            VALIDER L'ENVOI — {getDisplayPrice()} FCFA
+          </Text> 
+        </TouchableOpacity>
       </ScrollView>
     </View>
   );

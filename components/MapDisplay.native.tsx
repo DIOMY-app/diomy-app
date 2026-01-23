@@ -168,10 +168,13 @@ export default function MapDisplay({
     const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
     setDeliveryPin(pinCode); 
     
-    // ✅ LOGIQUE TARIF PAR TAILLE
-    let basePrice = 500; // Petit
-    if (deliveryData.packageType === 'Moyen') basePrice = 750;
-    if (deliveryData.packageType === 'Grand') basePrice = 1000;
+    // ✅ 1. CALCUL DU SUPPLÉMENT RÉEL SELON LA TAILLE
+    let extra = 0;
+    if (deliveryData.packageType === 'Moyen') extra = 250;
+    if (deliveryData.packageType === 'Grand') extra = 500;
+
+    // ✅ 2. PRIX FINAL = (PRIX DISTANCE) + (SUPPLÉMENT TAILLE)
+    const finalPrice = (estimatedPrice || 500) + extra;
 
     try {
       const { data } = await supabase.from('delivery_requests').insert([{
@@ -181,9 +184,9 @@ export default function MapDisplay({
         recipient_name: deliveryData.recipientName,
         recipient_phone: deliveryData.recipientPhone,
         package_type: deliveryData.packageType,
-        verification_code: pinCode, // ✅ PIN ENREGISTRÉ
+        verification_code: pinCode,
         status: 'pending',
-        price: estimatedPrice || basePrice // ✅ PRIX BASÉ SUR LA TAILLE
+        price: finalPrice // ✅ ON ENREGISTRE LE PRIX TOTAL CALCULÉ
       }]).select().single();
 
       if (data) {
@@ -195,7 +198,7 @@ export default function MapDisplay({
       }
     } catch (err) { console.error(err); }
   };
-
+  
   const handleToggleOnline = async () => {
     if (!canGoOnline) {
       Alert.alert("DIOMY", "Votre dossier est en cours d'analyse.");
@@ -738,8 +741,15 @@ export default function MapDisplay({
 
           {/* ✅ PHASE 2 : FORMULAIRE COLIS */}
           {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-            <DeliveryForm onConfirm={handleDeliveryOrder} onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} />
-          )}
+  <DeliveryForm 
+    onConfirm={handleDeliveryOrder} 
+    onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
+    initialPrice={estimatedPrice} // ✅ ON AJOUTE ÇA ICI
+  />
+)}
+
+
+
 
           {/* ✅ IDENTITY CARD */}
           {(rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'pending') && partnerInfo && (
