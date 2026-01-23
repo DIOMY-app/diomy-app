@@ -878,10 +878,18 @@ export default function MapDisplay({
             </View>
           )}
 
-          {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-            <DeliveryForm onConfirm={handleDeliveryOrder} onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} />
-          )}
-
+          {/* ✅ PHASE 2 : FORMULAIRE COLIS (CORRIGÉ POUR LE CLIC) */}
+{showDeliveryForm && activeService === 'delivery' && !rideStatus && (
+  <View style={{ zIndex: 9999, width: '100%' }} pointerEvents="auto">
+    <DeliveryForm 
+      onConfirm={handleDeliveryOrder} 
+      onCancel={() => { 
+        setShowDeliveryForm(false); 
+        setActiveService(null); 
+      }} 
+    />
+  </View>
+)}
           {(rideStatus === 'accepted' || rideStatus === 'in_progress') && partnerInfo && (
             <View style={styles.identityCard}>
               <View style={styles.idHeader}>
