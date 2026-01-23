@@ -259,16 +259,25 @@ export default function MapDisplay({
   const injectLocationToMap = (lat: number, lon: number, focus: boolean = false) => {
     if (!webviewRef.current) return;
     
-    // On prépare un objet simple avec les données
+    // 1. On envoie les données pour le point bleu
     const locationData = JSON.stringify({
       type: 'set_location',
       lat: lat,
       lon: lon,
       focus: focus
     });
-
-    // On l'envoie à la carte via postMessage (plus stable)
     webviewRef.current.postMessage(locationData);
+
+    // 2. ✅ ON AJOUTE L'ORDRE DE RECENTRAGE ICI
+    // Sans ce petit code, la carte reçoit l'info mais reste immobile
+    if (focus) {
+      webviewRef.current.injectJavaScript(`
+        if (typeof map !== 'undefined') {
+          map.setView([${lat}, ${lon}], 17);
+        }
+        true;
+      `);
+    }
   };
   
   const getCurrentLocation = async (forceFocus = false) => {
@@ -634,22 +643,26 @@ export default function MapDisplay({
     <View style={styles.container}>
       <View style={StyleSheet.absoluteFill}>
         <WebView 
-          ref={webviewRef} 
-          originWhitelist={['*']} 
-          source={{ html: mapHtml }} 
-          style={{ flex: 1, backgroundColor: 'transparent' }} 
-          javaScriptEnabled={true} 
-          domStorageEnabled={true} 
-          androidLayerType="hardware"
-          onLoadEnd={() => { if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, true); }}
-          onMessage={async (e) => {
-            const data = JSON.parse(e.nativeEvent.data);
-            if (data.type === 'map_click' && role === 'passager' && !rideStatus) {
-              const { data: street } = await supabase.rpc('get_logical_address', { lat: data.lat, lon: data.lon });
-              handleLocationSelect(data.lat, data.lon, street || "Destination choisie");
-            }
-          }} 
-        />
+  ref={webviewRef} 
+  originWhitelist={['*']} 
+  source={{ html: mapHtml }} 
+  style={{ flex: 1, backgroundColor: 'transparent' }} 
+  javaScriptEnabled={true} 
+  domStorageEnabled={true} 
+  onLoadEnd={() => {
+  // On attend 500ms que Leaflet s'initialise vraiment
+  setTimeout(() => {
+    if (pickupLocation) {
+      injectLocationToMap(pickupLocation.lat, pickupLocation.lon, true);
+    }
+  }, 500);
+}}
+
+  onMessage={async (e) => {
+    // ... ton code onMessage actuel
+  }} 
+/>
+
       </View>
 
       {/* ✅ MÉMOIRE CODE PIN (Badge permanent) */}
