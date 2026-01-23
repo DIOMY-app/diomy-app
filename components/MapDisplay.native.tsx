@@ -198,7 +198,7 @@ export default function MapDisplay({
       }
     } catch (err) { console.error(err); }
   };
-  
+
   const handleToggleOnline = async () => {
     if (!canGoOnline) {
       Alert.alert("DIOMY", "Votre dossier est en cours d'analyse.");
@@ -262,25 +262,27 @@ export default function MapDisplay({
   const injectLocationToMap = (lat: number, lon: number, focus: boolean = false) => {
     if (!webviewRef.current) return;
     
-    // 1. On envoie les données pour le point bleu
-    const locationData = JSON.stringify({
-      type: 'set_location',
-      lat: lat,
-      lon: lon,
-      focus: focus
-    });
-    webviewRef.current.postMessage(locationData);
-
-    // 2. ✅ ON AJOUTE L'ORDRE DE RECENTRAGE ICI
-    // Sans ce petit code, la carte reçoit l'info mais reste immobile
-    if (focus) {
-      webviewRef.current.injectJavaScript(`
-        if (typeof map !== 'undefined') {
-          map.setView([${lat}, ${lon}], 17);
+    // ✅ ON UNIFIE TOUT DANS UNE SEULE INJECTION JS
+    const js = `
+      (function() {
+        if (typeof window.setUserLocation === 'function') {
+          // Utilise la fonction définie dans ton HTML
+          window.setUserLocation(${lat}, ${lon}, ${focus});
+        } else if (typeof map !== 'undefined') {
+          // Secours si setUserLocation n'est pas encore prêt
+          if (typeof markers !== 'undefined') {
+            if (markers.p) map.removeLayer(markers.p);
+            markers.p = L.marker([${lat}, ${lon}], {
+              icon: L.divIcon({ className: 'blue-dot', iconSize: [20, 20], iconAnchor: [10, 10] })
+            }).addTo(map);
+          }
+          if (${focus}) map.setView([${lat}, ${lon}], 17);
         }
-        true;
-      `);
-    }
+      })();
+      true;
+    `;
+    
+    webviewRef.current.injectJavaScript(js);
   };
   
   const getCurrentLocation = async (forceFocus = false) => {
@@ -626,17 +628,17 @@ export default function MapDisplay({
     spots.forEach(function(s){ L.marker(s.c, { icon: L.divIcon({ className: 'korhogo-label', html: '<div>'+s.n+'</div>', iconSize: [120, 20], iconAnchor: [60, 10] }), interactive: false }).addTo(map); });
     
     // ✅ LOGIQUE DE RÉCEPTION DU POINT BLEU
-    window.addEventListener("message",function(e){
-        var data=JSON.parse(e.data);
-        if(data.type==='set_location'){
-            if(markers.p) map.removeLayer(markers.p);
-            markers.p = L.marker([data.lat, data.lon], {
-                icon: L.divIcon({ className: 'blue-dot', iconSize: [20, 20], iconAnchor: [10, 10] })
-            }).addTo(map);
-            if(data.focus) map.setView([data.lat, data.lon], 17);
-        }
-        if(data.type==='reset_map'){ if(markers.p) map.removeLayer(markers.p); if(markers.d) map.removeLayer(markers.d); if(routeLayer) map.removeLayer(routeLayer); map.setView([9.4580,-5.6290], 15); }
-    });
+    window.setUserLocation = function(lat, lon, focus) {
+        if (markers.p) map.removeLayer(markers.p);
+        markers.p = L.marker([lat, lon], {
+            icon: L.divIcon({ 
+                className: 'blue-dot', 
+                iconSize: [20, 20], 
+                iconAnchor: [10, 10] 
+            })
+        }).addTo(map);
+        if (focus) map.setView([lat, lon], 17);
+    };
 
     map.on('click',function(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));});</script></body></html>`;
 
