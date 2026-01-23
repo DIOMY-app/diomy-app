@@ -165,30 +165,36 @@ export default function MapDisplay({
   };
 
   const handleDeliveryOrder = async (deliveryData: any) => {
-    const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
-    setDeliveryPin(pinCode); 
-    try {
-      const { data } = await supabase.from('delivery_requests').insert([{
-        sender_id: userId,
-        pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon,
-        delivery_lat: selectedLocation?.lat, delivery_lon: selectedLocation?.lon,
-        recipient_name: deliveryData.recipientName,
-        recipient_phone: deliveryData.recipientPhone,
-        package_type: deliveryData.packageType,
-        verification_code: pinCode,
-        status: 'pending',
-        price: estimatedPrice || 500
-      }]).select().single();
+    const pinCode = Math.floor(1000 + Math.random() * 9000).toString();
+    setDeliveryPin(pinCode); 
+    
+    // ✅ LOGIQUE TARIF PAR TAILLE
+    let basePrice = 500; // Petit
+    if (deliveryData.packageType === 'Moyen') basePrice = 750;
+    if (deliveryData.packageType === 'Grand') basePrice = 1000;
 
-      if (data) {
-        Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
-        speak("Livraison enregistrée. Donnez le code au destinataire.");
-        setRideStatus('pending'); 
-        setCurrentRideId(data.id);
-        setShowDeliveryForm(false);
-      }
-    } catch (err) { console.error(err); }
-  };
+    try {
+      const { data } = await supabase.from('delivery_requests').insert([{
+        sender_id: userId,
+        pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon,
+        delivery_lat: selectedLocation?.lat, delivery_lon: selectedLocation?.lon,
+        recipient_name: deliveryData.recipientName,
+        recipient_phone: deliveryData.recipientPhone,
+        package_type: deliveryData.packageType,
+        verification_code: pinCode, // ✅ PIN ENREGISTRÉ
+        status: 'pending',
+        price: estimatedPrice || basePrice // ✅ PRIX BASÉ SUR LA TAILLE
+      }]).select().single();
+
+      if (data) {
+        Alert.alert("Colis Enregistré ! 📦", `Code de vérification : ${pinCode}`);
+        speak("Livraison enregistrée.");
+        setRideStatus('pending'); 
+        setCurrentRideId(data.id);
+        setShowDeliveryForm(false);
+      }
+    } catch (err) { console.error(err); }
+  };
 
   const handleToggleOnline = async () => {
     if (!canGoOnline) {
@@ -251,25 +257,20 @@ export default function MapDisplay({
   };
 
   const injectLocationToMap = (lat: number, lon: number, focus: boolean = false) => {
-    if (!webviewRef.current) return;
-    const js = `
-      if (typeof markers !== 'undefined') {
-        if (markers.p) map.removeLayer(markers.p);
-        markers.p = L.marker([${lat}, ${lon}], {
-          icon: L.divIcon({
-            className: 'blue-dot',
-            iconSize: [20, 20]
-          })
-        }).addTo(map);
-        if (${focus}) {
-          map.setView([${lat}, ${lon}], 17);
-        }
-      }
-      true;
-    `;
-    webviewRef.current.injectJavaScript(js);
-  };
+    if (!webviewRef.current) return;
+    
+    // On prépare un objet simple avec les données
+    const locationData = JSON.stringify({
+      type: 'set_location',
+      lat: lat,
+      lon: lon,
+      focus: focus
+    });
 
+    // On l'envoie à la carte via postMessage (plus stable)
+    webviewRef.current.postMessage(locationData);
+  };
+  
   const getCurrentLocation = async (forceFocus = false) => {
     try {
       let { status } = await Location.requestForegroundPermissionsAsync();
@@ -427,25 +428,40 @@ export default function MapDisplay({
   };
 
   const handleFinalizeRide = async () => {
-    try {
-      const waitingCharge = Math.ceil(waitingTime / 60) * 25;
-      const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-      const { data: rideToFinish } = await supabase.from(table).select('*').eq('id', currentRideId).single();
-      const isColis = activeService === 'delivery';
-      
-      const threshold = isColis ? 3.0 : 1.5;
-      const basePrice = isColis ? 500 : 250;
-      const finalPrice = Math.ceil((basePrice + (realTraveledDistance > threshold ? (realTraveledDistance - threshold) * 100 : 0) + waitingCharge) / 50) * 50;
-      
-      await supabase.from(table).update({ status: 'completed', price: finalPrice }).eq('id', currentRideId);
-      setFinalRideData({ ...rideToFinish, price: finalPrice });
-      setShowSummary(true); 
-      setIsWaiting(false);
-      
-      if (isColis) sendPushNotification("DIOMY", "✅ Votre colis a été livré !");
-      speak(`Mission terminée. Montant ${finalPrice} francs.`);
-    } catch (err) { console.error(err); }
-  };
+    try {
+      const isColis = activeService === 'delivery';
+      const table = isColis ? 'delivery_requests' : 'rides_request';
+      const { data: rideToFinish } = await supabase.from(table).select('*').eq('id', currentRideId).single();
+      
+      const waitingCharge = Math.ceil(waitingTime / 60) * 25;
+      const threshold = isColis ? 3.0 : 1.5;
+      
+      // ✅ LOGIQUE PRIX DE BASE
+      let basePrice = 250; // Taxi par défaut
+      if (isColis) {
+        if (rideToFinish.package_type === 'Moyen') basePrice = 750;
+        else if (rideToFinish.package_type === 'Grand') basePrice = 1000;
+        else basePrice = 500;
+      }
+
+      const finalPrice = Math.ceil((basePrice + (realTraveledDistance > threshold ? (realTraveledDistance - threshold) * 100 : 0) + waitingCharge) / 50) * 50;
+      
+      // ✅ CALCUL COMMISSION DIOMY (15% ou 12%)
+      const commissionRate = isColis ? 0.15 : 0.12; 
+      const finalCommission = Math.ceil(finalPrice * commissionRate);
+
+      await supabase.from(table).update({ 
+        status: 'completed', 
+        price: finalPrice,
+        commission_amount: finalCommission // ✅ COMMISSION PRÉLEVÉE
+      }).eq('id', currentRideId);
+
+      setFinalRideData({ ...rideToFinish, price: finalPrice });
+      setShowSummary(true); 
+      setIsWaiting(false);
+      speak(`Terminé. Montant ${finalPrice} francs.`);
+    } catch (err) { console.error(err); }
+  };
 
   const fetchPartnerInfo = async (id: string) => {
     try {
@@ -586,21 +602,31 @@ export default function MapDisplay({
   }, [currentRideId]);
 
   const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <style>
-      body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
-      .blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);}
-      .korhogo-label{background:transparent;border:none;box-shadow:none;color:#1e3a8a;font-weight:bold;text-shadow:0 0 5px white, 0 0 10px white;font-size:12px;white-space:nowrap;text-align:center;}
-    </style></head><body><div id="map"></div><script>
-    var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
-    L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
-    var markers={};var routeLayer=null;
-    var spots = [{n: "Université Peleforo GC", c: [9.4411, -5.6264]},{n: "Hôpital CHR", c: [9.4542, -5.6288]},{n: "Grand Marché", c: [9.4585, -5.6315]},{n: "Gare Routière", c: [9.4620, -5.6340]},{n: "Aéroport Korhogo", c: [9.3871, -5.5567]}];
-    spots.forEach(function(s){ L.marker(s.c, { icon: L.divIcon({ className: 'korhogo-label', html: '<div>'+s.n+'</div>', iconSize: [120, 20], iconAnchor: [60, 10] }), interactive: false }).addTo(map); });
-    window.addEventListener("message",function(e){
-        var data=JSON.parse(e.data);
-        if(data.type==='reset_map'){ if(markers.p) map.removeLayer(markers.p); if(markers.d) map.removeLayer(markers.d); if(routeLayer) map.removeLayer(routeLayer); map.setView([9.4580,-5.6290], 15); }
-    });
-    map.on('click',function(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));});</script></body></html>`;
+    <style>
+      body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
+      .blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);}
+      .korhogo-label{background:transparent;border:none;box-shadow:none;color:#1e3a8a;font-weight:bold;text-shadow:0 0 5px white, 0 0 10px white;font-size:12px;white-space:nowrap;text-align:center;}
+    </style></head><body><div id="map"></div><script>
+    var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
+    L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
+    var markers={};var routeLayer=null;
+    var spots = [{n: "Université Peleforo GC", c: [9.4411, -5.6264]},{n: "Hôpital CHR", c: [9.4542, -5.6288]},{n: "Grand Marché", c: [9.4585, -5.6315]}];
+    spots.forEach(function(s){ L.marker(s.c, { icon: L.divIcon({ className: 'korhogo-label', html: '<div>'+s.n+'</div>', iconSize: [120, 20], iconAnchor: [60, 10] }), interactive: false }).addTo(map); });
+    
+    // ✅ LOGIQUE DE RÉCEPTION DU POINT BLEU
+    window.addEventListener("message",function(e){
+        var data=JSON.parse(e.data);
+        if(data.type==='set_location'){
+            if(markers.p) map.removeLayer(markers.p);
+            markers.p = L.marker([data.lat, data.lon], {
+                icon: L.divIcon({ className: 'blue-dot', iconSize: [20, 20], iconAnchor: [10, 10] })
+            }).addTo(map);
+            if(data.focus) map.setView([data.lat, data.lon], 17);
+        }
+        if(data.type==='reset_map'){ if(markers.p) map.removeLayer(markers.p); if(markers.d) map.removeLayer(markers.d); if(routeLayer) map.removeLayer(routeLayer); map.setView([9.4580,-5.6290], 15); }
+    });
+
+    map.on('click',function(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));});</script></body></html>`;
 
   if (!isMapReady) return <View style={styles.loader}><ActivityIndicator size="large" color="#009199" /><Text style={styles.loaderText}>DIOMY...</Text></View>;
 
