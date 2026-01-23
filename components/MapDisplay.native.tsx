@@ -770,16 +770,28 @@ export default function MapDisplay({
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
               {suggestions.length > 0 && destination.length > 0 && (
-                <View style={styles.suggestionsContainer}>
-                  <ScrollView keyboardShouldPersistTaps="handled">
-                    {suggestions.map((item, i) => (
-                      <TouchableOpacity key={i} style={styles.suggestionItem} onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}>
-                        <Ionicons name="location-outline" size={20} color="#64748b" /><Text style={styles.suggestionText}>{item.properties.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
+  <View style={[styles.suggestionsContainer, { 
+    position: 'absolute', 
+    bottom: 80, // Il se place juste au dessus de la barre de recherche
+    left: 0, 
+    right: 0, 
+    zIndex: 1000, // Il passe au dessus de tout
+    elevation: 10 
+  }]}>
+    <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 200 }}>
+      {suggestions.map((item, i) => (
+        <TouchableOpacity 
+          key={i} 
+          style={styles.suggestionItem} 
+          onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}
+        >
+          <Ionicons name="location-outline" size={20} color="#64748b" />
+          <Text style={styles.suggestionText}>{item.properties.name}</Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  </View>
+)}
               {selectedLocation && destination.length > 0 && (
                 <TouchableOpacity 
                   style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
