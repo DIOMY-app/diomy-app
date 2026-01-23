@@ -820,22 +820,30 @@ export default function MapDisplay({
                 <View style={styles.preferenceBox}>
                   <Text style={styles.preferenceTitle}>QUE SOUHAITEZ-VOUS FAIRE ?</Text>
                   <View style={styles.preferenceRow}>
-                    <TouchableOpacity 
-                      style={[styles.prefBtn, acceptsTransport && styles.prefBtnActive]} 
-                      onPress={() => setAcceptsTransport(!acceptsTransport)}
-                    >
-                      <Ionicons name="people" size={18} color={acceptsTransport ? "#fff" : "#1e3a8a"} />
-                      <Text style={[styles.prefText, acceptsTransport && styles.prefTextActive]}>TAXI</Text>
-                    </TouchableOpacity>
+  {/* BOUTON TAXI - Devient Vert si activé */}
+  <TouchableOpacity 
+    style={[
+      styles.prefBtn, 
+      acceptsTransport ? {backgroundColor: '#22c55e', borderColor: '#22c55e'} : {backgroundColor: '#f1f5f9', borderColor: '#1e3a8a'}
+    ]} 
+    onPress={() => setAcceptsTransport(!acceptsTransport)}
+  >
+    <Ionicons name="people" size={18} color={acceptsTransport ? "#fff" : "#1e3a8a"} />
+    <Text style={[styles.prefText, {color: acceptsTransport ? "#fff" : "#1e3a8a"}]}>TAXI</Text>
+  </TouchableOpacity>
 
-                    <TouchableOpacity 
-                      style={[styles.prefBtn, acceptsDelivery && styles.prefBtnActive]} 
-                      onPress={() => setAcceptsDelivery(!acceptsDelivery)}
-                    >
-                      <Ionicons name="cube" size={18} color={acceptsDelivery ? "#fff" : "#1e3a8a"} />
-                      <Text style={[styles.prefText, acceptsDelivery && styles.prefTextActive]}>COLIS</Text>
-                    </TouchableOpacity>
-                  </View>
+  {/* BOUTON COLIS - Devient Vert si activé */}
+  <TouchableOpacity 
+    style={[
+      styles.prefBtn, 
+      acceptsDelivery ? {backgroundColor: '#22c55e', borderColor: '#22c55e'} : {backgroundColor: '#f1f5f9', borderColor: '#1e3a8a'}
+    ]} 
+    onPress={() => setAcceptsDelivery(!acceptsDelivery)}
+  >
+    <Ionicons name="cube" size={18} color={acceptsDelivery ? "#fff" : "#f97316"} />
+    <Text style={[styles.prefText, {color: acceptsDelivery ? "#fff" : "#f97316"}]}>COLIS</Text>
+  </TouchableOpacity>
+</View>
                 </View>
               )}
 
