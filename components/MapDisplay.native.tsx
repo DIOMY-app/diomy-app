@@ -770,28 +770,29 @@ export default function MapDisplay({
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
               {suggestions.length > 0 && destination.length > 0 && (
-  <View style={[styles.suggestionsContainer, { 
-    position: 'absolute', 
-    bottom: 80, // Il se place juste au dessus de la barre de recherche
-    left: 0, 
-    right: 0, 
-    zIndex: 1000, // Il passe au dessus de tout
-    elevation: 10 
-  }]}>
-    <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 200 }}>
-      {suggestions.map((item, i) => (
-        <TouchableOpacity 
-          key={i} 
-          style={styles.suggestionItem} 
-          onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}
-        >
-          <Ionicons name="location-outline" size={20} color="#64748b" />
-          <Text style={styles.suggestionText}>{item.properties.name}</Text>
-        </TouchableOpacity>
-      ))}
-    </ScrollView>
-  </View>
-)}
+                <View style={[styles.suggestionsContainer, { 
+                  position: 'absolute', 
+                  bottom: 80, 
+                  left: 0, 
+                  right: 0, 
+                  zIndex: 1000, 
+                  elevation: 10 
+                }]}>
+                  <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 200 }}>
+                    {suggestions.map((item, i) => (
+                      <TouchableOpacity 
+                        key={i} 
+                        style={styles.suggestionItem} 
+                        onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}
+                      >
+                        <Ionicons name="location-outline" size={20} color="#64748b" />
+                        <Text style={styles.suggestionText}>{item.properties.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
               {selectedLocation && destination.length > 0 && (
                 <TouchableOpacity 
                   style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
@@ -865,7 +866,6 @@ export default function MapDisplay({
 
                 <Ionicons name="search" size={22} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} style={{marginRight: 10}} />
                 <TextInput style={styles.input} placeholder={activeService === 'delivery' ? "Où envoyer le colis ?" : "Où allez-vous ?"} value={destination} onChangeText={async (t) => {
-
                   setDestination(t);
                   if (t.length === 0) resetSearch();
                   else if (t.length > 2) {
@@ -878,16 +878,6 @@ export default function MapDisplay({
             </View>
           )}
 
-  {/* ✅ TON FORMULAIRE PLACÉ ICI (LIBRE) */}
-      {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-        <View style={{ position: 'absolute', top: 80, left: 15, right: 15, zIndex: 999999 }}>
-          <DeliveryForm 
-            onConfirm={handleDeliveryOrder} 
-            onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
-          />
-        </View>
-      )}
-                
           {(rideStatus === 'accepted' || rideStatus === 'in_progress') && partnerInfo && (
             <View style={styles.identityCard}>
               <View style={styles.idHeader}>
@@ -1075,11 +1065,31 @@ export default function MapDisplay({
             <TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity>
           </View>
         </View>
-      </Modal> {/* ✅ VÉRIFIE QUE CETTE BALISE EST BIEN LÀ */}
+      </Modal>
 
-        </View> 
+      {/* ✅ RETOUR LOGIQUE HIER : LE FORMULAIRE TOUT EN BAS DU CODE (PRIORITÉ TACTILE MAXIMALE) */}
+      {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
+        <View style={{ 
+          position: 'absolute', 
+          top: 80, 
+          left: 15, 
+          right: 15, 
+          zIndex: 999999,
+          elevation: 20 
+        }} pointerEvents="auto">
+          <DeliveryForm 
+            onConfirm={handleDeliveryOrder} 
+            onCancel={() => { 
+              setShowDeliveryForm(false); 
+              setActiveService(null); 
+            }} 
+          />
+        </View>
+      )}
+      
+    </View> 
   );
-} // ✅ FIN DE LA FONCTION
+} 
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#009199' },
