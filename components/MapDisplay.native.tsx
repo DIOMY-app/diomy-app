@@ -878,7 +878,16 @@ export default function MapDisplay({
             </View>
           )}
 
-          
+  {/* ✅ TON FORMULAIRE PLACÉ ICI (LIBRE) */}
+      {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
+        <View style={{ position: 'absolute', top: 80, left: 15, right: 15, zIndex: 999999 }}>
+          <DeliveryForm 
+            onConfirm={handleDeliveryOrder} 
+            onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
+          />
+        </View>
+      )}
+                
           {(rideStatus === 'accepted' || rideStatus === 'in_progress') && partnerInfo && (
             <View style={styles.identityCard}>
               <View style={styles.idHeader}>
@@ -1068,17 +1077,7 @@ export default function MapDisplay({
         </View>
       </Modal> {/* ✅ VÉRIFIE QUE CETTE BALISE EST BIEN LÀ */}
 
-      {/* ✅ TON FORMULAIRE PLACÉ ICI (LIBRE) */}
-      {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-        <View style={{ position: 'absolute', top: 80, left: 15, right: 15, zIndex: 999999 }}>
-          <DeliveryForm 
-            onConfirm={handleDeliveryOrder} 
-            onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
-          />
-        </View>
-      )}
-
-    </View> 
+        </View> 
   );
 } // ✅ FIN DE LA FONCTION
 
