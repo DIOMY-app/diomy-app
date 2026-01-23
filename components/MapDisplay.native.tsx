@@ -72,6 +72,9 @@ export default function MapDisplay({
   const [userId, setUserId] = useState<string | null>(null);
   const [userScore, setUserScore] = useState<number>(100); 
   const [isOnline, setIsOnline] = useState(false);
+  const [acceptsTransport, setAcceptsTransport] = useState(true); 
+  const [acceptsDelivery, setAcceptsDelivery] = useState(true);
+  const [incomingRide, setIncomingRide] = useState<any>(null);
   const [destination, setDestination] = useState('');
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [pickupLocation, setPickupLocation] = useState<{lat: number, lon: number} | null>(null);
@@ -579,13 +582,38 @@ export default function MapDisplay({
           }
         }
       })
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: table, filter: `status=eq.pending` }, (payload) => {
-        const nr = payload.new as any;
-        if (nr.driver_id === userId && isOnline && !rideStatus && !isHandlingModal.current && nr.id !== lastProcessedRideId.current) { 
-          speak("Nouvelle demande.");
-          Vibration.vibrate([0, 500, 200, 500]);
-        }
-      }).subscribe();
+      // 1. ÉCOUTE DES TAXIS
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'rides_request', // Table fixe pour le Taxi
+        filter: `status=eq.pending` 
+      }, (payload) => {
+        const nr = payload.new as any;
+        if (nr.driver_id === userId && isOnline && !rideStatus) { 
+          setActiveService('transport'); // On définit le type
+          setIncomingRide(nr);           // On déclenche la modale
+          speak("Nouvelle demande de taxi.");
+          Vibration.vibrate([0, 500, 200, 500]);
+        }
+      })
+      // 2. ÉCOUTE DES COLIS
+      .on('postgres_changes', { 
+        event: 'INSERT', 
+        schema: 'public', 
+        table: 'delivery_requests', // Table fixe pour le Colis
+        filter: `status=eq.pending` 
+      }, (payload) => {
+        const nr = payload.new as any;
+        if (nr.driver_id === userId && isOnline && !rideStatus) { 
+          setActiveService('delivery');  // On définit le type
+          setIncomingRide(nr);           // On déclenche la modale
+          speak("Nouvelle demande de colis.");
+          Vibration.vibrate([0, 500, 200, 500]);
+        }
+      })
+      .subscribe();
+
     return () => { supabase.removeChannel(channel); };
   }, [userId, isOnline, rideStatus, activeService]);
 
@@ -678,278 +706,379 @@ export default function MapDisplay({
         </View>
       )}
 
-      <TouchableOpacity style={styles.gpsBtn} onPress={() => getCurrentLocation(true)}><Ionicons name="locate" size={26} color="#1e3a8a" /></TouchableOpacity>
+     <TouchableOpacity style={styles.gpsBtn} onPress={() => getCurrentLocation(true)}>
+        <Ionicons name="locate" size={26} color="#1e3a8a" />
+      </TouchableOpacity>
 
-      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
-        <View style={styles.overlay}>
-          
-          {/* ✅ SÉLECTEUR INITIAL */}
-          {role === 'passager' && !activeService && !rideStatus && (
-            <ServiceSelector onSelect={(m) => setActiveService(m)} />
-          )}
+      <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
+        <View style={styles.overlay}>
+          
+          {/* ✅ SÉLECTEUR INITIAL */}
+          {role === 'passager' && !activeService && !rideStatus && (
+            <ServiceSelector onSelect={(m) => setActiveService(m)} />
+          )}
 
-          {/* ✅ RECHERCHE DESTINATION */}
-          {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
-            <View style={styles.passengerPane}>
-              {suggestions.length > 0 && destination.length > 0 && (
-                <View style={styles.suggestionsContainer}>
-                  <ScrollView keyboardShouldPersistTaps="handled">
-                    {suggestions.map((item, i) => (
-                      <TouchableOpacity key={i} style={styles.suggestionItem} onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}>
-                        <Ionicons name="location-outline" size={20} color="#64748b" /><Text style={styles.suggestionText}>{item.properties.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-              {selectedLocation && destination.length > 0 && (
-                <TouchableOpacity 
-                  style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
-                  onPress={async () => {
-                    if (activeService === 'transport') {
-                      const { data: drivers } = await supabase.rpc('find_nearest_driver', { px_lat: pickupLocation?.lat, px_lon: pickupLocation?.lon, max_dist: 1000 });
-                      if (drivers?.[0]) {
-                        const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon, price: estimatedPrice || 500 }]).select().single();
-                        if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
-                      } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
-                    } else {
-                      setShowDeliveryForm(true); 
-                    }
-                  }}>
-                  <View style={styles.priceContainer}>
-                    <View style={styles.priceLeft}>
-                        <Text style={styles.distLabel}>{estimatedDistance} km</Text>
-                        <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
-                        {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE 3 KM INCLUS</Text>}
-                    </View>
-                    <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
-              <View style={styles.searchBar}>
-                <Ionicons name="search" size={22} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} style={{marginRight: 10}} />
-                <TextInput style={styles.input} placeholder={activeService === 'delivery' ? "Où envoyer le colis ?" : "Où allez-vous ?"} value={destination} onChangeText={async (t) => {
-                  setDestination(t);
-                  if (t.length === 0) resetSearch();
-                  else if (t.length > 2) {
-                    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=10`);
-                    const d = await res.json(); setSuggestions(d.features || []);
-                  }
-                }} />
-                {destination.length > 0 && <TouchableOpacity onPress={resetSearch}><Ionicons name="close-circle" size={20} color="#94a3b8" /></TouchableOpacity>}
-              </View>
-            </View>
-          )}
+          {/* ✅ RECHERCHE DESTINATION */}
+          {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
+            <View style={styles.passengerPane}>
+              {suggestions.length > 0 && destination.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    {suggestions.map((item, i) => (
+                      <TouchableOpacity key={i} style={styles.suggestionItem} onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}>
+                        <Ionicons name="location-outline" size={20} color="#64748b" /><Text style={styles.suggestionText}>{item.properties.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+              {selectedLocation && destination.length > 0 && (
+                <TouchableOpacity 
+                  style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
+                  onPress={async () => {
+                    if (activeService === 'transport') {
+                      const { data: drivers } = await supabase.rpc('find_nearest_driver', { 
+  px_lat: pickupLocation?.lat, 
+  px_lon: pickupLocation?.lon, 
+  max_dist: 2000,             // Toujours 1 km (tu peux mettre 2000 si tu veux élargir)
+  service_type: activeService // ✅ C'est ici qu'on filtre !
+});
 
-          {/* ✅ PHASE 2 : FORMULAIRE COLIS */}
-          {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-  <DeliveryForm 
-    onConfirm={handleDeliveryOrder} 
-    onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
-    initialPrice={estimatedPrice} // ✅ ON AJOUTE ÇA ICI
-  />
-)}
+                      if (drivers?.[0]) {
+                        const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon, price: estimatedPrice || 500 }]).select().single();
+                        if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
+                      } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
+                    } else {
+                      setShowDeliveryForm(true); 
+                    }
+                  }}>
+                  <View style={styles.priceContainer}>
+                    <View style={styles.priceLeft}>
+                        <Text style={styles.distLabel}>{estimatedDistance} km</Text>
+                        <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
+                        {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE 3 KM INCLUS</Text>}
+                    </View>
+                    <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
+                  </View>
+                </TouchableOpacity>
+              )}
+              <View style={styles.searchBar}>
+                <Ionicons name="search" size={22} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} style={{marginRight: 10}} />
+                <TextInput style={styles.input} placeholder={activeService === 'delivery' ? "Où envoyer le colis ?" : "Où allez-vous ?"} value={destination} onChangeText={async (t) => {
+                  setDestination(t);
+                  if (t.length === 0) resetSearch();
+                  else if (t.length > 2) {
+                    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=10`);
+                    const d = await res.json(); setSuggestions(d.features || []);
+                  }
+                }} />
+                {destination.length > 0 && <TouchableOpacity onPress={resetSearch}><Ionicons name="close-circle" size={20} color="#94a3b8" /></TouchableOpacity>}
+              </View>
+            </View>
+          )}
 
+          {/* ✅ FORMULAIRE COLIS */}
+          {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
+            <DeliveryForm 
+              onConfirm={handleDeliveryOrder} 
+              onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
+              initialPrice={estimatedPrice} 
+            />
+          )}
 
+          {/* ✅ IDENTITY CARD */}
+          {(rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'pending') && partnerInfo && (
+            <View style={styles.identityCard}>
+              <View style={styles.idHeader}>
+                <View style={styles.avatarBox}>{partnerInfo.avatar_url ? <Image source={{ uri: partnerInfo.avatar_url }} style={styles.avatarImg} /> : <Ionicons name="person" size={28} color="#94a3b8" />}</View>
+                <View style={{ flex: 1, marginLeft: 15 }}>
+                  <Text style={styles.idLabel}>{role === 'chauffeur' ? "VOTRE PARTENAIRE" : (activeService === 'delivery' ? "LIVREUR" : "VOTRE CHAUFFEUR")}</Text>
+                  <Text style={styles.idName}>{partnerInfo.full_name || "Utilisateur"}</Text>
+                  {role === 'passager' && <Text style={styles.idMoto}>🏍️ {partnerInfo.vehicle_model || "Moto Standard"}</Text>}
+                </View>
+                <View style={{flexDirection: 'row', gap: 10}}>
+                  <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#ef4444'}]} onPress={handleCancelRide}>
+                    <Ionicons name="close" size={20} color="#fff" />
+                  </TouchableOpacity>
+                  <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#1e3a8a'}]} onPress={() => setShowChat(true)}><Ionicons name="chatbubble-ellipses" size={20} color="#fff" /></TouchableOpacity>
+                  <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#22c55e'}]} onPress={() => Linking.openURL(`tel:${partnerInfo.phone_number}`)}><Ionicons name="call" size={20} color="#fff" /></TouchableOpacity>
+                </View>
+              </View>
+              {isWaiting && (
+                <View style={styles.waitingIndicator}>
+                  <ActivityIndicator size="small" color="#f59e0b" />
+                  <Text style={styles.waitingText}>⏳ Attente : {Math.floor(waitingTime/60)}m {waitingTime%60}s</Text>
+                </View>
+              )}
+            </View>
+          )}
 
+          {/* ✅ PANNEAU CHAUFFEUR */}
+          {role === 'chauffeur' && (
+            <View style={styles.driverPane}>
+              {!isOnline && !rideStatus && (
+                <View style={styles.preferenceBox}>
+                  <Text style={styles.preferenceTitle}>QUE SOUHAITEZ-VOUS FAIRE ?</Text>
+                  <View style={styles.preferenceRow}>
+                    <TouchableOpacity 
+                      style={[styles.prefBtn, acceptsTransport && styles.prefBtnActive]} 
+                      onPress={() => setAcceptsTransport(!acceptsTransport)}
+                    >
+                      <Ionicons name="people" size={18} color={acceptsTransport ? "#fff" : "#1e3a8a"} />
+                      <Text style={[styles.prefText, acceptsTransport && styles.prefTextActive]}>TAXI</Text>
+                    </TouchableOpacity>
 
-          {/* ✅ IDENTITY CARD */}
-          {(rideStatus === 'accepted' || rideStatus === 'in_progress' || rideStatus === 'pending') && partnerInfo && (
-            <View style={styles.identityCard}>
-              <View style={styles.idHeader}>
-                <View style={styles.avatarBox}>{partnerInfo.avatar_url ? <Image source={{ uri: partnerInfo.avatar_url }} style={styles.avatarImg} /> : <Ionicons name="person" size={28} color="#94a3b8" />}</View>
-                <View style={{ flex: 1, marginLeft: 15 }}>
-                  <Text style={styles.idLabel}>{role === 'chauffeur' ? "VOTRE PARTENAIRE" : (activeService === 'delivery' ? "LIVREUR" : "VOTRE CHAUFFEUR")}</Text>
-                  <Text style={styles.idName}>{partnerInfo.full_name || "Utilisateur"}</Text>
-                  {role === 'passager' && <Text style={styles.idMoto}>🏍️ {partnerInfo.vehicle_model || "Moto Standard"}</Text>}
-                </View>
-                <View style={{flexDirection: 'row', gap: 10}}>
-                  <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#ef4444'}]} onPress={handleCancelRide}>
-                    <Ionicons name="close" size={20} color="#fff" />
-                  </TouchableOpacity>
-                  <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#1e3a8a'}]} onPress={() => setShowChat(true)}><Ionicons name="chatbubble-ellipses" size={20} color="#fff" /></TouchableOpacity>
-                  <TouchableOpacity style={[styles.actionCircle, {backgroundColor: '#22c55e'}]} onPress={() => Linking.openURL(`tel:${partnerInfo.phone_number}`)}><Ionicons name="call" size={20} color="#fff" /></TouchableOpacity>
-                </View>
-              </View>
-              {isWaiting && (
-                <View style={styles.waitingIndicator}>
-                  <ActivityIndicator size="small" color="#f59e0b" />
-                  <Text style={styles.waitingText}>⏳ Attente : {Math.floor(waitingTime/60)}m {waitingTime%60}s</Text>
-                </View>
-              )}
-            </View>
-          )}
+                    <TouchableOpacity 
+                      style={[styles.prefBtn, acceptsDelivery && styles.prefBtnActive]} 
+                      onPress={() => setAcceptsDelivery(!acceptsDelivery)}
+                    >
+                      <Ionicons name="cube" size={18} color={acceptsDelivery ? "#fff" : "#1e3a8a"} />
+                      <Text style={[styles.prefText, acceptsDelivery && styles.prefTextActive]}>COLIS</Text>
+                    </TouchableOpacity>
+                  </View>
+                </View>
+              )}
 
-          {role === 'chauffeur' ? (
-            <View style={styles.driverPane}>
-              {!rideStatus && <View style={styles.scoreBadge}><MaterialCommunityIcons name="star-circle" size={22} color="#eab308" /><Text style={styles.scoreText}>Fiabilité : {userScore}/100</Text></View>}
-              
-              {rideStatus === 'accepted' ? (
-                <View style={{ width: '100%' }}>
-                  {!hasArrivedAtPickup ? (
-                    <SwipeButton
-                      title="GLISSER POUR L'ARRIVÉE"
-                      onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé."); }}
-                      railBackgroundColor="#cbd5e1" railFillBackgroundColor="#1e3a8a" railFillBorderColor="#1e3a8a"
-                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#1e3a8a" titleColor="#1e3a8a" titleFontSize={14}
-                    />
-                  ) : (
-                    <SwipeButton
-                      title="GLISSER POUR DÉBUTER"
-                      onSwipeSuccess={async () => { 
-                        const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-                        await supabase.from(table).update({ status: 'in_progress' }).eq('id', currentRideId); 
-                        speak("Course débutée."); 
-                      }}
-                      railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316"
-                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}
-                    />
-                  )}
-                </View>
-              ) : rideStatus === 'in_progress' ? (
-                <View style={{ gap: 10 }}>
-                  <TouchableOpacity style={[styles.mainBtn, {backgroundColor: isWaiting ? '#ef4444' : '#f59e0b', height: 45}]} onPress={toggleWaiting}>
-                    <Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text>
-                  </TouchableOpacity>
-                  <SwipeButton
-                    title={activeService === 'delivery' ? "LIVRER (Saisir PIN)" : "GLISSER POUR TERMINER"}
-                    onSwipeSuccess={() => activeService === 'delivery' ? setShowPinModal(true) : handleFinalizeRide()}
-                    railBackgroundColor="#dcfce7" railFillBackgroundColor="#22c55e" railFillBorderColor="#22c55e"
-                    thumbIconBackgroundColor="#fff" thumbIconBorderColor="#22c55e" titleColor="#22c55e" titleFontSize={14}
-                  />
-                </View>
-              ) : (
-                <TouchableOpacity style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} onPress={handleToggleOnline}>
-                  <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE" : "ACTIVER MA MOTO")}</Text>
-                </TouchableOpacity>
-              )}
-            </View>
-          ) : (
-            rideStatus === 'pending' && (
-              <View style={styles.statusCard}>
-                <ActivityIndicator color="#1e3a8a" />
-                <Text style={styles.statusText}>Recherche de partenaire DIOMY...</Text>
-                <TouchableOpacity onPress={handleCancelRide}><Ionicons name="close-circle" size={30} color="#ef4444" /></TouchableOpacity>
-              </View>
-            )
-          )}
-        </View>
-      </KeyboardAvoidingView>
+              {!rideStatus && <View style={styles.scoreBadge}><MaterialCommunityIcons name="star-circle" size={22} color="#eab308" /><Text style={styles.scoreText}>Fiabilité : {userScore}/100</Text></View>}
+              
+              {rideStatus === 'accepted' ? (
+                <View style={{ width: '100%' }}>
+                  {!hasArrivedAtPickup ? (
+                    <SwipeButton
+                      title="GLISSER POUR L'ARRIVÉE"
+                      onSwipeSuccess={() => { setHasArrivedAtPickup(true); sendMessage("🏁 Je suis arrivé au point de rendez-vous !"); speak("Vous êtes arrivé."); }}
+                      railBackgroundColor="#cbd5e1" railFillBackgroundColor="#1e3a8a" railFillBorderColor="#1e3a8a"
+                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#1e3a8a" titleColor="#1e3a8a" titleFontSize={14}
+                    />
+                  ) : (
+                    <SwipeButton
+                      title="GLISSER POUR DÉBUTER"
+                      onSwipeSuccess={async () => { 
+                        const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+                        await supabase.from(table).update({ status: 'in_progress' }).eq('id', currentRideId); 
+                        speak("Course débutée."); 
+                      }}
+                      railBackgroundColor="#ffedd5" railFillBackgroundColor="#f97316" railFillBorderColor="#f97316"
+                      thumbIconBackgroundColor="#fff" thumbIconBorderColor="#f97316" titleColor="#f97316" titleFontSize={14}
+                    />
+                  )}
+                </View>
+              ) : rideStatus === 'in_progress' ? (
+                <View style={{ gap: 10 }}>
+                  <TouchableOpacity style={[styles.mainBtn, {backgroundColor: isWaiting ? '#ef4444' : '#f59e0b', height: 45}]} onPress={toggleWaiting}>
+                    <Text style={styles.btnText}>{isWaiting ? "REPRENDRE LE TRAJET" : "PAUSE / ATTENTE"}</Text>
+                  </TouchableOpacity>
+                  <SwipeButton
+                    title={activeService === 'delivery' ? "LIVRER (Saisir PIN)" : "GLISSER POUR TERMINER"}
+                    onSwipeSuccess={() => activeService === 'delivery' ? setShowPinModal(true) : handleFinalizeRide()}
+                    railBackgroundColor="#dcfce7" railFillBackgroundColor="#22c55e" railFillBorderColor="#22c55e"
+                    thumbIconBackgroundColor="#fff" thumbIconBorderColor="#22c55e" titleColor="#22c55e" titleFontSize={14}
+                  />
+                </View>
+              ) : (
+                <TouchableOpacity style={[styles.mainBtn, isOnline ? styles.bgOnline : styles.bgOffline, !canGoOnline && { backgroundColor: '#94a3b8' }]} onPress={handleToggleOnline}>
+                  <Text style={styles.btnText}>{!canGoOnline ? "DOSSIER EN COURS" : (isOnline ? "EN LIGNE (QUITTER)" : "ACTIVER MA MOTO")}</Text>
+                </TouchableOpacity>
+              )}
+            </View>
+          )}
 
-      <Modal visible={showChat} animationType="slide" transparent={false}>
-        <View style={styles.chatContainer}>
-          <View style={styles.chatHeader}>
-            <TouchableOpacity onPress={() => setShowChat(false)}><Ionicons name="chevron-back" size={28} color="#1e3a8a" /></TouchableOpacity>
-            <Text style={styles.chatTitle}>Discussion</Text>
-            <View style={{width: 28}} />
-          </View>
-          <ScrollView ref={chatScrollRef} style={styles.messagesList} onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}>
-            {chatMessages.map((msg, idx) => (
-              <View key={idx} style={[styles.messageBubble, msg.sender_id === userId ? styles.myMessage : styles.theirMessage]}>
-                <Text style={[styles.messageText, msg.sender_id === userId ? styles.myText : styles.theirText]}>{msg.content}</Text>
-              </View>
-            ))}
-          </ScrollView>
-          <View style={styles.chatInputArea}>
-            <TextInput style={styles.chatInput} placeholder="Écrivez votre message..." value={newMessage} onChangeText={setNewMessage} />
-            <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage()}><Ionicons name="send" size={24} color="#1e3a8a" /></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+          {/* ✅ RECHERCHE PASSAGER */}
+          {role !== 'chauffeur' && rideStatus === 'pending' && (
+            <View style={styles.statusCard}>
+              <ActivityIndicator color="#1e3a8a" />
+              <Text style={styles.statusText}>Recherche de partenaire DIOMY...</Text>
+              <TouchableOpacity onPress={handleCancelRide}><Ionicons name="close-circle" size={30} color="#ef4444" /></TouchableOpacity>
+            </View>
+          )}
+        </View>
+      </KeyboardAvoidingView>
 
-      <Modal visible={showSummary} transparent animationType="fade">
-        <View style={styles.modalOverlay}>
-          <View style={[styles.modalContent, { padding: 25 }]}>
-            <Ionicons name="checkmark-circle" size={60} color="#22c55e" />
-            <Text style={styles.modalTitle}>Terminé !</Text>
-            <Text style={styles.priceSummary}>{finalRideData?.price} FCFA</Text>
-            <TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: '#1e3a8a' }]} onPress={() => setShowSummary(false)}>
-              <Text style={[styles.closeSummaryText, { color: '#fff' }]}>FERMER</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
+      {/* ✅ MODALES */}
+      <Modal visible={showChat} animationType="slide">
+        <View style={styles.chatContainer}>
+          <View style={styles.chatHeader}>
+            <TouchableOpacity onPress={() => setShowChat(false)}><Ionicons name="chevron-back" size={28} color="#1e3a8a" /></TouchableOpacity>
+            <Text style={styles.chatTitle}>Discussion</Text>
+            <View style={{width: 28}} />
+          </View>
+          <ScrollView ref={chatScrollRef} style={styles.messagesList} onContentSizeChange={() => chatScrollRef.current?.scrollToEnd({ animated: true })}>
+            {chatMessages.map((msg, idx) => (
+              <View key={idx} style={[styles.messageBubble, msg.sender_id === userId ? styles.myMessage : styles.theirMessage]}>
+                <Text style={[styles.messageText, msg.sender_id === userId ? styles.myText : styles.theirText]}>{msg.content}</Text>
+              </View>
+            ))}
+          </ScrollView>
+          <View style={styles.chatInputArea}>
+            <TextInput style={styles.chatInput} placeholder="Écrivez votre message..." value={newMessage} onChangeText={setNewMessage} />
+            <TouchableOpacity style={styles.sendBtn} onPress={() => sendMessage()}><Ionicons name="send" size={24} color="#1e3a8a" /></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
-      {/* ✅ MODAL SAISIE PIN SÉCURISÉ */}
-      <Modal visible={showPinModal} transparent animationType="slide">
-        <View style={styles.modalOverlay}>
-          <View style={styles.modalContent}>
-            <MaterialCommunityIcons name="lock-check" size={50} color="#1e3a8a" />
-            <Text style={styles.modalTitle}>Vérification PIN</Text>
-            <Text style={{ textAlign: 'center', marginBottom: 20 }}>Demandez le code au destinataire pour valider.</Text>
-            <TextInput 
-              style={[styles.searchBar, { textAlign: 'center', fontSize: 30, letterSpacing: 10, width: '100%' }]} 
-              placeholder="0000" keyboardType="number-pad" maxLength={4} value={enteredPin} onChangeText={setEnteredPin} 
-            />
-            <TouchableOpacity style={[styles.mainBtn, { width: '100%', marginTop: 20, backgroundColor: '#22c55e' }]} onPress={handleVerifyPinAndFinish}>
-              <Text style={styles.btnText}>TERMINER LIVRAISON</Text>
-            </TouchableOpacity>
-            <TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity>
-          </View>
-        </View>
-      </Modal>
-    </View>
-  );
+      <Modal visible={showSummary} transparent>
+        <View style={styles.modalOverlay}>
+          <View style={[styles.modalContent, { padding: 25 }]}>
+            <Ionicons name="checkmark-circle" size={60} color="#22c55e" />
+            <Text style={styles.modalTitle}>Terminé !</Text>
+            <Text style={styles.priceSummary}>{finalRideData?.price} FCFA</Text>
+            <TouchableOpacity style={[styles.closeSummaryBtn, { backgroundColor: '#1e3a8a' }]} onPress={() => setShowSummary(false)}>
+              <Text style={[styles.closeSummaryText, { color: '#fff' }]}>FERMER</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+
+      <Modal visible={showPinModal} transparent>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <MaterialCommunityIcons name="lock-check" size={50} color="#1e3a8a" />
+            <Text style={styles.modalTitle}>Vérification PIN</Text>
+            <Text style={{ textAlign: 'center', marginBottom: 20 }}>Demandez le code au destinataire pour valider.</Text>
+            <TextInput 
+              style={[styles.searchBar, { textAlign: 'center', fontSize: 30, letterSpacing: 10, width: '100%' }]} 
+              placeholder="0000" keyboardType="number-pad" maxLength={4} value={enteredPin} onChangeText={setEnteredPin} 
+            />
+            <TouchableOpacity style={[styles.mainBtn, { width: '100%', marginTop: 20, backgroundColor: '#22c55e' }]} onPress={handleVerifyPinAndFinish}>
+              <Text style={styles.btnText}>TERMINER LIVRAISON</Text>
+            </TouchableOpacity>
+            <TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+     {/* 🔔 MODALE D'ACCEPTATION DU CHAUFFEUR */}
+      <Modal visible={!!incomingRide} transparent animationType="slide">
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            
+            {/* 🏷️ BADGE DYNAMIQUE */}
+            <View style={[
+              styles.serviceBadge, 
+              activeService === 'delivery' ? { backgroundColor: '#f97316' } : { backgroundColor: '#1e3a8a' }
+            ]}>
+              <Ionicons name={activeService === 'delivery' ? "cube" : "people"} size={20} color="#fff" />
+              <Text style={styles.serviceBadgeText}>
+                {activeService === 'delivery' ? "LIVRAISON COLIS" : "COURSE TAXI"}
+              </Text>
+            </View>
+
+            <Text style={styles.modalTitle}>Nouvelle demande !</Text>
+            <Text style={{ marginBottom: 20, fontSize: 16, textAlign: 'center', color: '#1e293b' }}>
+              Un client sollicite vos services à proximité.
+            </Text>
+
+            {/* ✅ UN SEUL BOUTON AVEC LOGIQUE DE DÉTECTION AUTOMATIQUE */}
+            <TouchableOpacity 
+              style={[styles.mainBtn, { width: '100%', backgroundColor: '#22c55e' }]} 
+              onPress={async () => {
+                try {
+                  // Détection automatique de la table : Colis ou Taxi ?
+                  const isDelivery = incomingRide.package_type !== undefined;
+                  const tableToUpdate = isDelivery ? 'delivery_requests' : 'rides_request';
+                  
+                  // On synchronise l'affichage local (Orange pour Colis, Bleu pour Taxi)
+                  setActiveService(isDelivery ? 'delivery' : 'transport');
+
+                  const { error } = await supabase
+                    .from(tableToUpdate)
+                    .update({ status: 'accepted', driver_id: userId })
+                    .eq('id', incomingRide.id);
+
+                  if (error) throw error;
+                  
+                  setRideStatus('accepted');
+                  setCurrentRideId(incomingRide.id);
+                  setIncomingRide(null); // On ferme la fenêtre d'alerte
+                  speak("Course acceptée, en route !");
+                } catch (error) {
+                  console.error("Erreur acceptation:", error);
+                  Alert.alert("DIOMY", "Désolé, impossible d'accepter cette mission.");
+                }
+              }}
+            >
+              <Text style={styles.btnText}>ACCEPTER LA MISSION</Text>
+            </TouchableOpacity>
+
+            <TouchableOpacity 
+              style={{ marginTop: 20 }} 
+              onPress={() => setIncomingRide(null)}
+            >
+              <Text style={{ color: '#ef4444', fontWeight: 'bold' }}>IGNORER</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
+    </View>
+  );
 }
 
 const styles = StyleSheet.create({
-  container: { flex: 1, backgroundColor: '#009199' },
-  loader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
-  loaderText: { marginTop: 10, fontSize: 16, color: '#009199', fontWeight: 'bold' },
-  keyboardContainer: { flex: 1, justifyContent: 'flex-end' },
-  gpsBtn: { position: 'absolute', right: 20, bottom: 220, backgroundColor: 'white', padding: 12, borderRadius: 30, elevation: 5, zIndex: 10 },
-  overlay: { padding: 20, paddingBottom: 110 },
-  pinReminder: { position: 'absolute', top: 60, right: 20, backgroundColor: '#f97316', padding: 10, borderRadius: 15, alignItems: 'center', elevation: 10, zIndex: 100 },
-  pinLabel: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
-  pinValue: { color: '#fff', fontSize: 24, fontWeight: '900' },
-  identityCard: { backgroundColor: '#fff', borderRadius: 25, padding: 15, marginBottom: 15, elevation: 10 },
-  idHeader: { flexDirection: 'row', alignItems: 'center' },
-  avatarBox: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
-  avatarImg: { width: '100%', height: '100%' },
-  idLabel: { fontSize: 9, fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase' },
-  idName: { fontSize: 16, fontWeight: 'bold', color: '#1e293b' },
-  idMoto: { fontSize: 12, color: '#1e3a8a' },
-  actionCircle: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
-  driverPane: { width: '100%' },
-  scoreBadge: { backgroundColor: '#fff', padding: 12, borderRadius: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 10, elevation: 4 },
-  scoreText: { marginLeft: 10, fontWeight: 'bold', color: '#1e3a8a', fontSize: 14 },
-  mainBtn: { height: 65, borderRadius: 20, justifyContent: 'center', alignItems: 'center', elevation: 8 },
-  bgOnline: { backgroundColor: '#22c55e' },
-  bgOffline: { backgroundColor: '#1e3a8a' },
-  passengerPane: { width: '100%' },
-  searchBar: { backgroundColor: '#fff', height: 65, borderRadius: 20, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', elevation: 10 },
-  input: { flex: 1, fontSize: 16, color: '#1e293b' },
-  suggestionsContainer: { backgroundColor: '#fff', borderRadius: 20, marginBottom: 10, elevation: 5, maxHeight: 180, overflow: 'hidden' },
-  suggestionItem: { padding: 15, borderBottomWidth: 1, borderColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center' },
-  suggestionText: { fontSize: 14, marginLeft: 10, color: '#1e293b', flex: 1 },
-  confirmBtn: { backgroundColor: '#1e3a8a', borderRadius: 20, elevation: 8, marginBottom: 15, padding: 15 },
-  priceContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  priceLeft: { borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.3)', paddingRight: 20 },
-  distLabel: { color: '#cbd5e1', fontSize: 12, fontWeight: '600' },
-  priceLabel: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
-  orderLabel: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
-  statusCard: { backgroundColor: '#fff', padding: 20, borderRadius: 20, flexDirection: 'row', alignItems: 'center', elevation: 5 },
-  statusText: { marginLeft: 15, fontWeight: 'bold', fontSize: 16, color: '#1e293b' },
-  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
-  waitingIndicator: { flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 8, backgroundColor: '#fef3c7', borderRadius: 10 },
-  waitingText: { marginLeft: 8, color: '#d97706', fontWeight: 'bold', fontSize: 13 },
-  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
-  modalContent: { backgroundColor: '#fff', width: '90%', padding: 25, borderRadius: 30, alignItems: 'center', elevation: 10 },
-  modalTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 10, color: '#1e293b' },
-  priceSummary: { fontSize: 40, fontWeight: '900', color: '#1e3a8a', marginVertical: 10 },
-  closeSummaryBtn: { marginTop: 15, padding: 12, backgroundColor: '#f1f5f9', borderRadius: 10, width: '70%', alignItems: 'center' },
-  closeSummaryText: { color: '#64748b', fontWeight: 'bold', fontSize: 14 },
-  chatContainer: { flex: 1, backgroundColor: '#fff' },
-  chatHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderColor: '#f1f5f9', paddingTop: 50 },
-  chatTitle: { fontSize: 16, fontWeight: 'bold', color: '#1e3a8a' },
-  messagesList: { flex: 1, padding: 15 },
-  messageBubble: { padding: 12, borderRadius: 15, marginBottom: 10, maxWidth: '80%' },
-  myMessage: { alignSelf: 'flex-end', backgroundColor: '#1e3a8a' },
-  theirMessage: { alignSelf: 'flex-start', backgroundColor: '#f1f5f9' },
-  messageText: { fontSize: 14 },
-  myText: { color: '#fff' },
-  theirText: { color: '#1e293b' },
-  chatInputArea: { flexDirection: 'row', padding: 15, alignItems: 'center', borderTopWidth: 1, borderColor: '#f1f5f9' },
-  chatInput: { flex: 1, backgroundColor: '#f8fafc', padding: 12, borderRadius: 20, marginRight: 10 },
-  sendBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' }
+  container: { flex: 1, backgroundColor: '#009199' },
+  loader: { flex: 1, justifyContent: 'center', alignItems: 'center', backgroundColor: '#fff' },
+  loaderText: { marginTop: 10, fontSize: 16, color: '#009199', fontWeight: 'bold' },
+  keyboardContainer: { flex: 1, justifyContent: 'flex-end' },
+  gpsBtn: { position: 'absolute', right: 20, bottom: 220, backgroundColor: 'white', padding: 12, borderRadius: 30, elevation: 5, zIndex: 10 },
+  overlay: { padding: 20, paddingBottom: 110 },
+  pinReminder: { position: 'absolute', top: 60, right: 20, backgroundColor: '#f97316', padding: 10, borderRadius: 15, alignItems: 'center', elevation: 10, zIndex: 100 },
+  pinLabel: { color: '#fff', fontSize: 10, fontWeight: 'bold' },
+  pinValue: { color: '#fff', fontSize: 24, fontWeight: '900' },
+  identityCard: { backgroundColor: '#fff', borderRadius: 25, padding: 15, marginBottom: 15, elevation: 10 },
+  idHeader: { flexDirection: 'row', alignItems: 'center' },
+  avatarBox: { width: 50, height: 50, borderRadius: 25, backgroundColor: '#f1f5f9', justifyContent: 'center', alignItems: 'center', overflow: 'hidden' },
+  avatarImg: { width: '100%', height: '100%' },
+  idLabel: { fontSize: 9, fontWeight: 'bold', color: '#94a3b8', textTransform: 'uppercase' },
+  idName: { fontSize: 16, fontWeight: 'bold', color: '#1e293b' },
+  idMoto: { fontSize: 12, color: '#1e3a8a' },
+  actionCircle: { width: 40, height: 40, borderRadius: 20, justifyContent: 'center', alignItems: 'center' },
+  driverPane: { width: '100%' },
+  scoreBadge: { backgroundColor: '#fff', padding: 12, borderRadius: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', marginBottom: 10, elevation: 4 },
+  scoreText: { marginLeft: 10, fontWeight: 'bold', color: '#1e3a8a', fontSize: 14 },
+  mainBtn: { height: 65, borderRadius: 20, justifyContent: 'center', alignItems: 'center', elevation: 8 },
+  bgOnline: { backgroundColor: '#22c55e' },
+  bgOffline: { backgroundColor: '#1e3a8a' },
+  passengerPane: { width: '100%' },
+  searchBar: { backgroundColor: '#fff', height: 65, borderRadius: 20, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', elevation: 10 },
+  input: { flex: 1, fontSize: 16, color: '#1e293b' },
+  suggestionsContainer: { backgroundColor: '#fff', borderRadius: 20, marginBottom: 10, elevation: 5, maxHeight: 180, overflow: 'hidden' },
+  suggestionItem: { padding: 15, borderBottomWidth: 1, borderColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center' },
+  suggestionText: { fontSize: 14, marginLeft: 10, color: '#1e293b', flex: 1 },
+  confirmBtn: { backgroundColor: '#1e3a8a', borderRadius: 20, elevation: 8, marginBottom: 15, padding: 15 },
+  priceContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  priceLeft: { borderRightWidth: 1, borderRightColor: 'rgba(255,255,255,0.3)', paddingRight: 20 },
+  distLabel: { color: '#cbd5e1', fontSize: 12, fontWeight: '600' },
+  priceLabel: { color: '#fff', fontSize: 22, fontWeight: 'bold' },
+  orderLabel: { color: '#fff', fontSize: 18, fontWeight: 'bold' },
+  statusCard: { backgroundColor: '#fff', padding: 20, borderRadius: 20, flexDirection: 'row', alignItems: 'center', elevation: 5 },
+  statusText: { marginLeft: 15, fontWeight: 'bold', fontSize: 16, color: '#1e293b' },
+  btnText: { color: '#fff', fontWeight: 'bold', fontSize: 16 },
+  waitingIndicator: { flexDirection: 'row', alignItems: 'center', marginTop: 10, padding: 8, backgroundColor: '#fef3c7', borderRadius: 10 },
+  waitingText: { marginLeft: 8, color: '#d97706', fontWeight: 'bold', fontSize: 13 },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.85)', justifyContent: 'center', alignItems: 'center' },
+  modalContent: { backgroundColor: '#fff', width: '90%', padding: 25, borderRadius: 30, alignItems: 'center', elevation: 10 },
+  modalTitle: { fontSize: 22, fontWeight: 'bold', marginBottom: 10, color: '#1e293b' },
+  priceSummary: { fontSize: 40, fontWeight: '900', color: '#1e3a8a', marginVertical: 10 },
+  closeSummaryBtn: { marginTop: 15, padding: 12, backgroundColor: '#f1f5f9', borderRadius: 10, width: '70%', alignItems: 'center' },
+  closeSummaryText: { color: '#64748b', fontWeight: 'bold', fontSize: 14 },
+  chatContainer: { flex: 1, backgroundColor: '#fff' },
+  chatHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', padding: 20, borderBottomWidth: 1, borderColor: '#f1f5f9', paddingTop: 50 },
+  chatTitle: { fontSize: 16, fontWeight: 'bold', color: '#1e3a8a' },
+  messagesList: { flex: 1, padding: 15 },
+  messageBubble: { padding: 12, borderRadius: 15, marginBottom: 10, maxWidth: '80%' },
+  myMessage: { alignSelf: 'flex-end', backgroundColor: '#1e3a8a' },
+  theirMessage: { alignSelf: 'flex-start', backgroundColor: '#f1f5f9' },
+  messageText: { fontSize: 14 },
+  myText: { color: '#fff' },
+  theirText: { color: '#1e293b' },
+  chatInputArea: { flexDirection: 'row', padding: 15, alignItems: 'center', borderTopWidth: 1, borderColor: '#f1f5f9' },
+  chatInput: { flex: 1, backgroundColor: '#f8fafc', padding: 12, borderRadius: 20, marginRight: 10 },
+  sendBtn: { width: 44, height: 44, justifyContent: 'center', alignItems: 'center' },
+  serviceBadge: { flexDirection: 'row', alignItems: 'center', padding: 10, borderRadius: 15, marginBottom: 15, gap: 8 },
+  serviceBadgeText: { color: '#fff', fontWeight: 'bold', fontSize: 14 },
+  preferenceBox: { backgroundColor: '#fff', padding: 15, borderRadius: 20, marginBottom: 12, elevation: 6 },
+  preferenceTitle: { fontSize: 10, fontWeight: 'bold', color: '#64748b', textAlign: 'center', marginBottom: 10, letterSpacing: 1 },
+  preferenceRow: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 },
+  prefBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', padding: 12, borderRadius: 12, borderWidth: 2, borderColor: '#1e3a8a', gap: 8 },
+  prefBtnActive: { backgroundColor: '#1e3a8a' },
+  prefText: { fontWeight: 'bold', color: '#1e3a8a', fontSize: 13 },
+  prefTextActive: { color: '#fff' }, 
 });
