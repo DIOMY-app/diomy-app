@@ -1013,18 +1013,7 @@ export default function MapDisplay({
             )
           )}
         </View>
-{/* ✅ PHASE 2 : FORMULAIRE COLIS (CORRIGÉ POUR LE CLIC) */}
-{showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-  <View style={{ zIndex: 9999, width: '100%' }} pointerEvents="auto">
-    <DeliveryForm 
-      onConfirm={handleDeliveryOrder} 
-      onCancel={() => { 
-        setShowDeliveryForm(false); 
-        setActiveService(null); 
-      }} 
-    />
-  </View>
-)}
+
       </KeyboardAvoidingView>
 
       <Modal visible={showChat} animationType="slide" transparent={false}>
@@ -1061,7 +1050,7 @@ export default function MapDisplay({
         </View>
       </Modal>
 
-      <Modal visible={showPinModal} transparent animationType="slide">
+     <Modal visible={showPinModal} transparent animationType="slide">
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <MaterialCommunityIcons name="lock-check" size={50} color="#1e3a8a" />
@@ -1077,10 +1066,21 @@ export default function MapDisplay({
             <TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity>
           </View>
         </View>
-      </Modal>
-    </View>
+      </Modal> {/* ✅ VÉRIFIE QUE CETTE BALISE EST BIEN LÀ */}
+
+      {/* ✅ TON FORMULAIRE PLACÉ ICI (LIBRE) */}
+      {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
+        <View style={{ position: 'absolute', top: 80, left: 15, right: 15, zIndex: 999999 }}>
+          <DeliveryForm 
+            onConfirm={handleDeliveryOrder} 
+            onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
+          />
+        </View>
+      )}
+
+    </View> 
   );
-}
+} // ✅ FIN DE LA FONCTION
 
 const styles = StyleSheet.create({
   container: { flex: 1, backgroundColor: '#009199' },
