@@ -779,113 +779,119 @@ export default function MapDisplay({
             <ServiceSelector onSelect={(m) => setActiveService(m)} />
           )}
 
-          {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
+          {role === 'passager' && activeService !== null && !rideStatus && (
             <View style={styles.passengerPane}>
-              {suggestions.length > 0 && destination.length > 0 && (
-                <View style={[styles.suggestionsContainer, { 
-                  position: 'absolute', 
-                  bottom: 80, 
-                  left: 0, 
-                  right: 0, 
-                  zIndex: 1000, 
-                  elevation: 10 
-                }]}>
-                  <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 200 }}>
-                    {suggestions.map((item, i) => (
-                      <TouchableOpacity 
-                        key={i} 
-                        style={styles.suggestionItem} 
-                        onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}
-                      >
-                        <Ionicons name="location-outline" size={20} color="#64748b" />
-                        <Text style={styles.suggestionText}>{item.properties.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-
-              {selectedLocation && destination.length > 0 && (
-                <TouchableOpacity 
-                  style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
-                  onPress={async () => {
-                    if (activeService === 'transport') {
-                      const { data: drivers } = await supabase.rpc('find_nearest_driver', { px_lat: pickupLocation?.lat, px_lon: pickupLocation?.lon, max_dist: 2000 });
-                      if (drivers?.[0]) {
-                        const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon, price: estimatedPrice || 500 }]).select().single();
-                        if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
-                      } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
-                    } else {
-                      setShowDeliveryForm(true); 
-                    }
-                  }}>
-                  <View style={styles.priceContainer}>
-                    <View style={styles.priceLeft}>
-                        <Text style={styles.distLabel}>{estimatedDistance} km</Text>
-                        <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
-                        {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE {packageSize.toUpperCase()} INCLUS</Text>}
+              
+              {/* ✅ LOGIQUE CLAUDE : SWITCH PROPRE */}
+              {showDeliveryForm ? (
+                <DeliveryForm 
+                  onConfirm={handleDeliveryOrder} 
+                  onCancel={() => { 
+                    setShowDeliveryForm(false); 
+                    setActiveService(null); 
+                  }} 
+                  onPickContact={handlePickContact}
+                  recipientName={recipientName}
+                  recipientPhone={recipientPhone}
+                  setRecipientName={setRecipientName}
+                  setRecipientPhone={setRecipientPhone}
+                />
+              ) : (
+                /* ✅ GROUPE RECHERCHE (Fragment <> obligatoire ici) */
+                <>
+                  {suggestions.length > 0 && destination.length > 0 && (
+                    <View style={[styles.suggestionsContainer, { 
+                      position: 'absolute', bottom: 80, left: 0, right: 0, zIndex: 1000, elevation: 10 
+                    }]}>
+                      <ScrollView keyboardShouldPersistTaps="handled" style={{ maxHeight: 200 }}>
+                        {suggestions.map((item, i) => (
+                          <TouchableOpacity 
+                            key={i} 
+                            style={styles.suggestionItem} 
+                            onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}
+                          >
+                            <Ionicons name="location-outline" size={20} color="#64748b" />
+                            <Text style={styles.suggestionText}>{item.properties.name}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </ScrollView>
                     </View>
-                    <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
-                  </View>
-                </TouchableOpacity>
-              )}
+                  )}
 
-              {/* ✅ ÉTAPE 4.2 : SÉLECTEUR DE TAILLE POUR LE PASSAGER */}
-              {activeService === 'delivery' && !selectedLocation && (
-                <View style={{ marginBottom: 15 }}>
-                  <Text style={[styles.idLabel, { color: '#fff', marginBottom: 5 }]}>TAILLE DU COLIS</Text>
-                  <View style={{ flexDirection: 'row', gap: 10 }}>
-                    {[
-                      { id: 'petit', label: 'Petit', desc: '500F', icon: 'mail-outline' },
-                      { id: 'moyen', label: 'Moyen', desc: '750F', icon: 'cube-outline' },
-                      { id: 'grand', label: 'Grand', desc: '1000F', icon: 'basket-outline' }
-                    ].map((item) => (
-                      <TouchableOpacity
-                        key={item.id}
-                        style={{
-                          flex: 1,
-                          padding: 10,
-                          borderRadius: 12,
-                          borderWidth: 2,
-                          borderColor: packageSize === item.id ? '#fff' : 'rgba(255,255,255,0.3)',
-                          backgroundColor: packageSize === item.id ? 'rgba(255,255,255,0.2)' : 'transparent',
-                          alignItems: 'center'
-                        }}
-                        onPress={() => {
-                          setPackageSize(item.id as any);
-                          speak(`Taille ${item.label} sélectionnée`);
-                        }}
+                  {selectedLocation && destination.length > 0 && (
+                    <TouchableOpacity 
+                      style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
+                      onPress={async () => {
+                        if (activeService === 'transport') {
+                          const { data: drivers } = await supabase.rpc('find_nearest_driver', { px_lat: pickupLocation?.lat, px_lon: pickupLocation?.lon, max_dist: 2000 });
+                          if (drivers?.[0]) {
+                            const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon, price: estimatedPrice || 500 }]).select().single();
+                            if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
+                          } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
+                        } else {
+                          setShowDeliveryForm(true); 
+                        }
+                      }}>
+                      <View style={styles.priceContainer}>
+                        <View style={styles.priceLeft}>
+                            <Text style={styles.distLabel}>{estimatedDistance} km</Text>
+                            <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
+                        </View>
+                        <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
+                      </View>
+                    </TouchableOpacity>
+                  )}
+
+                  {/* TAILLE COLIS */}
+                  {activeService === 'delivery' && !selectedLocation && (
+                    <View style={{ marginBottom: 15 }}>
+                      <Text style={[styles.idLabel, { color: '#fff', marginBottom: 5 }]}>TAILLE DU COLIS</Text>
+                      <View style={{ flexDirection: 'row', gap: 10 }}>
+                        {['petit', 'moyen', 'grand'].map((id) => (
+                          <TouchableOpacity
+                            key={id}
+                            style={{
+                              flex: 1, padding: 10, borderRadius: 12, borderWidth: 2,
+                              borderColor: packageSize === id ? '#fff' : 'rgba(255,255,255,0.3)',
+                              backgroundColor: packageSize === id ? 'rgba(255,255,255,0.2)' : 'transparent',
+                              alignItems: 'center'
+                            }}
+                            onPress={() => { setPackageSize(id as any); speak(id); }}
+                          >
+                            <Text style={{ fontWeight: 'bold', color: '#fff' }}>{id.toUpperCase()}</Text>
+                          </TouchableOpacity>
+                        ))}
+                      </View>
+                    </View>
+                  )}
+
+                  <View style={styles.searchBar}>
+                    {selectedLocation && (
+                      <TouchableOpacity 
+                        style={{ marginRight: 12 }} 
+                        onPress={() => handleSaveToFavorites(selectedLocation.lat, selectedLocation.lon, destination)}
                       >
-                        <Ionicons name={item.icon as any} size={20} color="#fff" />
-                        <Text style={{ fontWeight: 'bold', fontSize: 11, color: '#fff' }}>{item.label}</Text>
-                        <Text style={{ fontSize: 9, color: '#fff' }}>{item.desc}</Text>
+                        <Ionicons name="star" size={26} color="#eab308" />
                       </TouchableOpacity>
-                    ))}
+                    )}
+                    <Ionicons name="search" size={22} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} style={{marginRight: 10}} />
+                    <TextInput 
+                      style={styles.input} 
+                      placeholder={activeService === 'delivery' ? "Destination colis ?" : "Où allez-vous ?"} 
+                      value={destination} 
+                      onChangeText={async (t) => {
+                        setDestination(t);
+                        if (t.length === 0) resetSearch();
+                        else if (t.length > 2) {
+                          const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=10`);
+                          const d = await res.json(); setSuggestions(d.features || []);
+                        }
+                      }} 
+                    />
+                    {destination.length > 0 && <TouchableOpacity onPress={resetSearch}><Ionicons name="close-circle" size={20} color="#94a3b8" /></TouchableOpacity>}
                   </View>
-                </View>
+                </>
               )}
-
-              <View style={styles.searchBar}>
-                {selectedLocation && (
-                  <TouchableOpacity 
-                    style={{ marginRight: 12 }} 
-                    onPress={() => handleSaveToFavorites(selectedLocation.lat, selectedLocation.lon, destination)}
-                  >
-                    <Ionicons name="star" size={26} color="#eab308" />
-                  </TouchableOpacity>
-                )}
-
-                <Ionicons name="search" size={22} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} style={{marginRight: 10}} />
-                <TextInput style={styles.input} placeholder={activeService === 'delivery' ? "Où envoyer le colis ?" : "Où allez-vous ?"} value={destination} onChangeText={async (t) => {
-                  setDestination(t);
-                  if (t.length === 0) resetSearch();
-                  else if (t.length > 2) {
-                    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=10`);
-                    const d = await res.json(); setSuggestions(d.features || []);
-                  }
-                }} />
-                {destination.length > 0 && <TouchableOpacity onPress={resetSearch}><Ionicons name="close-circle" size={20} color="#94a3b8" /></TouchableOpacity>}
-              </View>
             </View>
           )}
 
@@ -980,22 +986,7 @@ export default function MapDisplay({
      <Modal visible={showPinModal} transparent animationType="slide">
         <View style={styles.modalOverlay}><View style={styles.modalContent}><MaterialCommunityIcons name="lock-check" size={50} color="#1e3a8a" /><Text style={styles.modalTitle}>Vérification PIN</Text><Text style={{ textAlign: 'center', marginBottom: 20 }}>Demandez le code au destinataire pour valider.</Text><TextInput style={[styles.searchBar, { textAlign: 'center', fontSize: 30, letterSpacing: 10, width: '100%' }]} placeholder="0000" keyboardType="number-pad" maxLength={4} value={enteredPin} onChangeText={setEnteredPin} /><TouchableOpacity style={[styles.mainBtn, { width: '100%', marginTop: 20, backgroundColor: '#22c55e' }]} onPress={handleVerifyPinAndFinish}><Text style={styles.btnText}>TERMINER LIVRAISON</Text></TouchableOpacity><TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity></View></View>
       </Modal>
-
-      {/* ✅ FORMULAIRE LIVRAISON - POSITION ABSOLUE (PRIORITÉ TACTILE MAXIMALE) */}
-      {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-        <View style={{ position: 'absolute', top: 80, left: 15, right: 15, zIndex: 999999, elevation: 20 }} pointerEvents="auto">
-          <DeliveryForm 
-            onConfirm={handleDeliveryOrder} 
-            onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
-            onPickContact={handlePickContact}
-            recipientName={recipientName}
-            recipientPhone={recipientPhone}
-            setRecipientName={setRecipientName}
-            setRecipientPhone={setRecipientPhone}
-          />
-        </View>
-      )}
-      
+           
     </View> 
   );
 } 
