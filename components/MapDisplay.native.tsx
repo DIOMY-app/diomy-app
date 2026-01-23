@@ -41,7 +41,7 @@ interface MapDisplayProps {
     address: string;
     lat?: number;
     lon?: number;
-  };         
+  };          
 }
 
 export default function MapDisplay({ 
@@ -782,7 +782,7 @@ export default function MapDisplay({
           {role === 'passager' && activeService !== null && !rideStatus && (
             <View style={styles.passengerPane}>
               
-              {/* ✅ LOGIQUE CLAUDE : SWITCH PROPRE */}
+              {/* ✅ LOGIQUE CLAUDE : SWITCH PROPRE DANS LE PANNEAU */}
               {showDeliveryForm ? (
                 <DeliveryForm 
                   onConfirm={handleDeliveryOrder} 
@@ -797,7 +797,6 @@ export default function MapDisplay({
                   setRecipientPhone={setRecipientPhone}
                 />
               ) : (
-                /* ✅ GROUPE RECHERCHE (Fragment <> obligatoire ici) */
                 <>
                   {suggestions.length > 0 && destination.length > 0 && (
                     <View style={[styles.suggestionsContainer, { 
@@ -986,7 +985,7 @@ export default function MapDisplay({
      <Modal visible={showPinModal} transparent animationType="slide">
         <View style={styles.modalOverlay}><View style={styles.modalContent}><MaterialCommunityIcons name="lock-check" size={50} color="#1e3a8a" /><Text style={styles.modalTitle}>Vérification PIN</Text><Text style={{ textAlign: 'center', marginBottom: 20 }}>Demandez le code au destinataire pour valider.</Text><TextInput style={[styles.searchBar, { textAlign: 'center', fontSize: 30, letterSpacing: 10, width: '100%' }]} placeholder="0000" keyboardType="number-pad" maxLength={4} value={enteredPin} onChangeText={setEnteredPin} /><TouchableOpacity style={[styles.mainBtn, { width: '100%', marginTop: 20, backgroundColor: '#22c55e' }]} onPress={handleVerifyPinAndFinish}><Text style={styles.btnText}>TERMINER LIVRAISON</Text></TouchableOpacity><TouchableOpacity onPress={() => setShowPinModal(false)} style={{ marginTop: 15 }}><Text style={{ color: '#ef4444' }}>Annuler</Text></TouchableOpacity></View></View>
       </Modal>
-           
+      
     </View> 
   );
 } 
