@@ -654,13 +654,13 @@ export default function MapDisplay({
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
     
     // ✅ UTILISATION RÉELLE DES TUILES OPENFREEMAP (SANS CLÉ API)
-    L.tileLayer('https://{s}.tile.openstreetmap.fr/hot/{z}/{x}/{y}.png', {
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
         maxZoom: 19, 
-        attribution: '© OpenStreetMap contributors, Humanitarian OSM Team',
+        attribution: '© OpenStreetMap contributors',
         updateWhenIdle: true, 
         keepBuffer: 2
     }).addTo(map);
-
+    
     var markers={};var routeLayer=null;
     var spots = [{n: "Université Peleforo GC", c: [9.4411, -5.6264]},{n: "Hôpital CHR", c: [9.4542, -5.6288]},{n: "Grand Marché", c: [9.4585, -5.6315]}];
     spots.forEach(function(s){ L.marker(s.c, { icon: L.divIcon({ className: 'korhogo-label', html: '<div>'+s.n+'</div>', iconSize: [120, 20], iconAnchor: [60, 10] }), interactive: false }).addTo(map); });
