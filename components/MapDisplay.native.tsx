@@ -408,14 +408,19 @@ export default function MapDisplay({
   };
 
   const handleLocationSelect = async (lat: number, lon: number, name: string) => {
+    // On crée des variables temporaires pour le calcul immédiat
+    let currentStart = pickupLocation;
+    let currentEnd = selectedLocation;
+
     if (searchMode === 'pickup') {
-      setPickupLocation({ lat, lon });
+      currentStart = { lat, lon };
+      setPickupLocation(currentStart);
       setPickupAddress(name);
     } else {
-      setSelectedLocation({ lat, lon });
+      currentEnd = { lat, lon };
+      setSelectedLocation(currentEnd);
       setDestination(name);
     }
-    setSuggestions([]);
     
     // Si on a les deux points, on calcule la route et le prix
     const start = searchMode === 'pickup' ? {lat, lon} : pickupLocation;
@@ -738,31 +743,19 @@ export default function MapDisplay({
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
               
-              {/* ✅ LISTE DES SUGGESTIONS (S'affiche au dessus) */}
-              {suggestions.length > 0 && (
-                <View style={styles.suggestionsContainer}>
-                  <ScrollView keyboardShouldPersistTaps="handled">
-                    {suggestions.map((item, i) => (
-                      <TouchableOpacity key={i} style={styles.suggestionItem} onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}>
-                        <Ionicons name="location-outline" size={20} color="#64748b" /><Text style={styles.suggestionText}>{item.properties.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
-
+              {/* ✅ 1. BOUTON RETOUR */}
               <TouchableOpacity 
-  style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }} 
-  onPress={() => {
-    setActiveService(null);
-    resetSearch();
-  }}
->
-  <Ionicons name="arrow-back" size={20} color="#fff" />
-  <Text style={{ color: '#fff', marginLeft: 5, fontWeight: 'bold' }}>Changer de service</Text>
-</TouchableOpacity>
+                style={styles.backToServiceBtn} 
+                onPress={() => {
+                  setActiveService(null);
+                  resetSearch();
+                }}
+              >
+                <Ionicons name="arrow-back-circle" size={24} color="#fff" />
+                <Text style={styles.backToServiceText}>Changer de service</Text>
+              </TouchableOpacity>
 
-              {/* ✅ DOUBLE BARRE DE RECHERCHE */}
+              {/* ✅ 2. DOUBLE BARRE DE RECHERCHE */}
               <View style={styles.doubleSearchContainer}>
                 {/* Point de départ */}
                 <View style={styles.searchRow}>
@@ -771,17 +764,18 @@ export default function MapDisplay({
                     style={[styles.input, searchMode === 'pickup' && styles.activeInput]} 
                     placeholder="Lieu de ramassage" 
                     value={pickupAddress} 
-                    onFocus={() => setSearchMode('pickup')}
+                    onFocus={() => { setSearchMode('pickup'); setSuggestions([]); }}
                     onChangeText={async (t) => {
-  setPickupAddress(t);
-  if (t.length === 0) {
-    setSuggestions([]); // On vide les suggestions si c'est vide
-    setPickupLocation(null); // On reset la position
-  } else if (t.length > 2) {
-    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
-    const d = await res.json(); setSuggestions(d.features || []);
-  }
-}}
+                      setPickupAddress(t);
+                      if (t.length === 0) { 
+                        setSuggestions([]); 
+                        setPickupLocation(null); 
+                      } else if (t.length > 2) {
+                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
+                        const d = await res.json(); 
+                        setSuggestions(d.features || []);
+                      }
+                    }} 
                   />
                 </View>
 
@@ -794,23 +788,42 @@ export default function MapDisplay({
                     style={[styles.input, searchMode === 'destination' && styles.activeInput]} 
                     placeholder={activeService === 'delivery' ? "Lieu de livraison" : "Où allez-vous ?"} 
                     value={destination} 
-                    onFocus={() => setSearchMode('destination')}
+                    onFocus={() => { setSearchMode('destination'); setSuggestions([]); }}
                     onChangeText={async (t) => {
-  setDestination(t);
-  if (t.length === 0) {
-    setSuggestions([]); // On vide les suggestions
-    setSelectedLocation(null);
-  } else if (t.length > 2) {
-    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
-    const d = await res.json(); setSuggestions(d.features || []);
-  }
-}}
+                      setDestination(t);
+                      if (t.length === 0) { 
+                        setSuggestions([]); 
+                        setSelectedLocation(null); 
+                      } else if (t.length > 2) {
+                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
+                        const d = await res.json(); 
+                        setSuggestions(d.features || []);
+                      }
+                    }} 
                   />
                 </View>
               </View>
 
-              {/* BOUTON CONFIRMER (S'affiche quand les deux sont ok) */}
-              {selectedLocation && pickupLocation && destination.length > 0 && (
+              {/* ✅ 3. LISTE DES SUGGESTIONS (Placée APRÈS les barres) */}
+              {suggestions.length > 0 && (
+                <View style={styles.suggestionsContainer}>
+                  <ScrollView keyboardShouldPersistTaps="handled">
+                    {suggestions.map((item, i) => (
+                      <TouchableOpacity 
+                        key={i} 
+                        style={styles.suggestionItem} 
+                        onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}
+                      >
+                        <Ionicons name="location-outline" size={20} color="#64748b" />
+                        <Text style={styles.suggestionText}>{item.properties.name}</Text>
+                      </TouchableOpacity>
+                    ))}
+                  </ScrollView>
+                </View>
+              )}
+
+              {/* ✅ 4. BOUTON CONFIRMATION (Tout en bas) */}
+              {selectedLocation && pickupLocation && destination.length > 0 && suggestions.length === 0 && (
                 <TouchableOpacity 
                   style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
                   onPress={async () => {
@@ -818,10 +831,9 @@ export default function MapDisplay({
                       const { data: drivers } = await supabase.rpc('find_nearest_driver', { 
                         px_lat: pickupLocation?.lat, 
                         px_lon: pickupLocation?.lon, 
-                        max_dist: 2000,
+                        max_dist: 2000, 
                         service_type: activeService 
                       });
-
                       if (drivers?.[0]) {
                         const { data } = await supabase.from('rides_request').insert([{ 
                           passenger_id: userId, 
@@ -834,12 +846,20 @@ export default function MapDisplay({
                           pickup_lon: pickupLocation?.lon, 
                           price: estimatedPrice || 500 
                         }]).select().single();
-                        if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
-                      } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité de ce point de départ."); }
-                    } else {
+                        if (data) { 
+                          setRideStatus('pending'); 
+                          setCurrentRideId(data.id); 
+                          speak("Recherche de chauffeur."); 
+                          fetchPartnerInfo(drivers[0].id); 
+                        }
+                      } else { 
+                        Alert.alert("DIOMY", "Aucun chauffeur à proximité."); 
+                      }
+                    } else { 
                       setShowDeliveryForm(true); 
                     }
-                  }}>
+                  }}
+                >
                   <View style={styles.priceContainer}>
                     <View style={styles.priceLeft}>
                         <Text style={styles.distLabel}>{estimatedDistance} km</Text>
@@ -851,7 +871,7 @@ export default function MapDisplay({
               )}
             </View>
           )}
-
+            
           {/* ✅ FORMULAIRE COLIS */}
           {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
             <DeliveryForm 
@@ -1122,7 +1142,27 @@ const styles = StyleSheet.create({
   passengerPane: { width: '100%' },
   searchBar: { backgroundColor: '#fff', height: 65, borderRadius: 20, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', elevation: 10 },
   input: { flex: 1, fontSize: 16, color: '#1e293b' },
-  suggestionsContainer: { backgroundColor: '#fff', borderRadius: 20, marginBottom: 10, elevation: 5, maxHeight: 180, overflow: 'hidden' },
+ backToServiceBtn: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: 'rgba(0,0,0,0.6)', 
+    paddingHorizontal: 12, 
+    paddingVertical: 8, 
+    borderRadius: 20, 
+    marginBottom: 10,
+    alignSelf: 'flex-start'
+  },
+  backToServiceText: { color: '#fff', marginLeft: 8, fontWeight: 'bold', fontSize: 13 },
+  suggestionsContainer: { 
+    backgroundColor: '#fff', 
+    borderRadius: 15, 
+    marginTop: -10, // Pour coller à la barre de recherche
+    marginBottom: 10, 
+    elevation: 5, 
+    maxHeight: 200, 
+    borderWidth: 1, 
+    borderColor: '#e2e8f0' 
+  },
   suggestionItem: { padding: 15, borderBottomWidth: 1, borderColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center' },
   suggestionText: { fontSize: 14, marginLeft: 10, color: '#1e293b', flex: 1 },
   confirmBtn: { backgroundColor: '#1e3a8a', borderRadius: 20, elevation: 8, marginBottom: 15, padding: 15 },
