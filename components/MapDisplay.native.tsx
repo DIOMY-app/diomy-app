@@ -75,7 +75,9 @@ export default function MapDisplay({
   const [acceptsTransport, setAcceptsTransport] = useState(true); 
   const [acceptsDelivery, setAcceptsDelivery] = useState(true);
   const [incomingRide, setIncomingRide] = useState<any>(null);
-  const [destination, setDestination] = useState('');
+ const [pickupAddress, setPickupAddress] = useState('Ma position actuelle'); // Texte du départ
+  const [destination, setDestination] = useState(''); // Texte de l'arrivée
+  const [searchMode, setSearchMode] = useState<'pickup' | 'destination'>('destination'); // Savoir quel champ on remplit
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [pickupLocation, setPickupLocation] = useState<{lat: number, lon: number} | null>(null);
   const [selectedLocation, setSelectedLocation] = useState<{lat: number, lon: number} | null>(null);
@@ -406,30 +408,40 @@ export default function MapDisplay({
   };
 
   const handleLocationSelect = async (lat: number, lon: number, name: string) => {
-    setSelectedLocation({ lat, lon });
-    setDestination(name);
-    setSuggestions([]);
-    
-    const loc = await Location.getCurrentPositionAsync({});
-    const r = await getRoute(loc.coords.latitude, loc.coords.longitude, lat, lon);
-    if (r) {
-      const distanceKm = r.distance / 1000;
-      setEstimatedDistance(distanceKm.toFixed(1));
-      
-      const isColis = activeService === 'delivery';
-      const basePrice = isColis ? 500 : 250;
-      const threshold = isColis ? 3.0 : 1.5; 
-      const price = Math.ceil((basePrice + (distanceKm > threshold ? (distanceKm - threshold) * 100 : 0)) / 50) * 50;
-      setEstimatedPrice(price);
-      
-      webviewRef.current?.injectJavaScript(`
-        if(markers.d) map.removeLayer(markers.d);
-        markers.d = L.marker([${lat}, ${lon}]).addTo(map);
-        map.setView([${lat}, ${lon}], 16);
-        true;
-      `);
-    }
-  };
+    if (searchMode === 'pickup') {
+      setPickupLocation({ lat, lon });
+      setPickupAddress(name);
+    } else {
+      setSelectedLocation({ lat, lon });
+      setDestination(name);
+    }
+    setSuggestions([]);
+    
+    // Si on a les deux points, on calcule la route et le prix
+    const start = searchMode === 'pickup' ? {lat, lon} : pickupLocation;
+    const end = searchMode === 'pickup' ? selectedLocation : {lat, lon};
+
+    if (start && end) {
+      const r = await getRoute(start.lat, start.lon, end.lat, end.lon);
+      if (r) {
+        const distanceKm = r.distance / 1000;
+        setEstimatedDistance(distanceKm.toFixed(1));
+        
+        const isColis = activeService === 'delivery';
+        const basePrice = isColis ? 500 : 250;
+        const threshold = isColis ? 3.0 : 1.5; 
+        const price = Math.ceil((basePrice + (distanceKm > threshold ? (distanceKm - threshold) * 100 : 0)) / 50) * 50;
+        setEstimatedPrice(price);
+        
+        webviewRef.current?.injectJavaScript(`
+          if(markers.d) map.removeLayer(markers.d);
+          markers.d = L.marker([${end.lat}, ${end.lon}]).addTo(map);
+          map.setView([${end.lat}, ${end.lon}], 16);
+          true;
+        `);
+      }
+    }
+  };
 
   // ✅ VÉRIFICATION PIN CHAUFFEUR
   const handleVerifyPinAndFinish = async () => {
@@ -490,6 +502,8 @@ export default function MapDisplay({
     setEstimatedPrice(null); setEstimatedDistance(null);
     setCurrentRideId(null); setRideStatus(null); setPartnerInfo(null);
     setChatMessages([]); setShowChat(false);
+    setPickupAddress('Ma position actuelle');
+    setSearchMode('destination');
     isHandlingModal.current = false;
     lastProcessedRideId.current = null;
     hasNotifiedArrival.current = false;
@@ -729,7 +743,9 @@ export default function MapDisplay({
           {/* ✅ RECHERCHE DESTINATION */}
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
-              {suggestions.length > 0 && destination.length > 0 && (
+              
+              {/* ✅ LISTE DES SUGGESTIONS (S'affiche au dessus) */}
+              {suggestions.length > 0 && (
                 <View style={styles.suggestionsContainer}>
                   <ScrollView keyboardShouldPersistTaps="handled">
                     {suggestions.map((item, i) => (
@@ -740,22 +756,75 @@ export default function MapDisplay({
                   </ScrollView>
                 </View>
               )}
-              {selectedLocation && destination.length > 0 && (
+
+              {/* ✅ DOUBLE BARRE DE RECHERCHE */}
+              <View style={styles.doubleSearchContainer}>
+                {/* Point de départ */}
+                <View style={styles.searchRow}>
+                  <Ionicons name="radio-button-on" size={20} color="#22c55e" />
+                  <TextInput 
+                    style={[styles.input, searchMode === 'pickup' && styles.activeInput]} 
+                    placeholder="Lieu de ramassage" 
+                    value={pickupAddress} 
+                    onFocus={() => setSearchMode('pickup')}
+                    onChangeText={async (t) => {
+                      setPickupAddress(t);
+                      if (t.length > 2) {
+                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
+                        const d = await res.json(); setSuggestions(d.features || []);
+                      }
+                    }} 
+                  />
+                </View>
+
+                <View style={styles.searchSeparator} />
+
+                {/* Destination */}
+                <View style={styles.searchRow}>
+                  <Ionicons name="location" size={20} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} />
+                  <TextInput 
+                    style={[styles.input, searchMode === 'destination' && styles.activeInput]} 
+                    placeholder={activeService === 'delivery' ? "Lieu de livraison" : "Où allez-vous ?"} 
+                    value={destination} 
+                    onFocus={() => setSearchMode('destination')}
+                    onChangeText={async (t) => {
+                      setDestination(t);
+                      if (t.length > 2) {
+                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
+                        const d = await res.json(); setSuggestions(d.features || []);
+                      }
+                    }} 
+                  />
+                </View>
+              </View>
+
+              {/* BOUTON CONFIRMER (S'affiche quand les deux sont ok) */}
+              {selectedLocation && pickupLocation && destination.length > 0 && (
                 <TouchableOpacity 
                   style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
                   onPress={async () => {
                     if (activeService === 'transport') {
                       const { data: drivers } = await supabase.rpc('find_nearest_driver', { 
-  px_lat: pickupLocation?.lat, 
-  px_lon: pickupLocation?.lon, 
-  max_dist: 2000,             // Toujours 1 km (tu peux mettre 2000 si tu veux élargir)
-  service_type: activeService // ✅ C'est ici qu'on filtre !
-});
+                        px_lat: pickupLocation?.lat, 
+                        px_lon: pickupLocation?.lon, 
+                        max_dist: 2000,
+                        service_type: activeService 
+                      });
 
                       if (drivers?.[0]) {
-                        const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation?.lat, pickup_lon: pickupLocation?.lon, price: estimatedPrice || 500 }]).select().single();
+                        const { data } = await supabase.from('rides_request').insert([{ 
+                          passenger_id: userId, 
+                          driver_id: drivers[0].id, 
+                          status: 'pending', 
+                          destination_name: destination, 
+                          dest_lat: selectedLocation.lat, 
+                          dest_lon: selectedLocation.lon, 
+                          pickup_lat: pickupLocation?.lat, 
+                          pickup_lon: pickupLocation?.lon, 
+                          price: estimatedPrice || 500 
+                        }]).select().single();
                         if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
-                      } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
+                      } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité de ce point de départ."); }
                     } else {
                       setShowDeliveryForm(true); 
                     }
@@ -764,24 +833,11 @@ export default function MapDisplay({
                     <View style={styles.priceLeft}>
                         <Text style={styles.distLabel}>{estimatedDistance} km</Text>
                         <Text style={styles.priceLabel}>{estimatedPrice} FCFA</Text>
-                        {activeService === 'delivery' && <Text style={{color: '#fff', fontSize: 8, fontWeight: 'bold'}}>BASE 3 KM INCLUS</Text>}
                     </View>
                     <Text style={styles.orderLabel}>{activeService === 'transport' ? 'COMMANDER' : 'SUIVANT'}</Text>
                   </View>
                 </TouchableOpacity>
               )}
-              <View style={styles.searchBar}>
-                <Ionicons name="search" size={22} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} style={{marginRight: 10}} />
-                <TextInput style={styles.input} placeholder={activeService === 'delivery' ? "Où envoyer le colis ?" : "Où allez-vous ?"} value={destination} onChangeText={async (t) => {
-                  setDestination(t);
-                  if (t.length === 0) resetSearch();
-                  else if (t.length > 2) {
-                    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=10`);
-                    const d = await res.json(); setSuggestions(d.features || []);
-                  }
-                }} />
-                {destination.length > 0 && <TouchableOpacity onPress={resetSearch}><Ionicons name="close-circle" size={20} color="#94a3b8" /></TouchableOpacity>}
-              </View>
             </View>
           )}
 
@@ -1097,4 +1153,31 @@ const styles = StyleSheet.create({
   prefBtnActive: { backgroundColor: '#1e3a8a' },
   prefText: { fontWeight: 'bold', color: '#1e3a8a', fontSize: 13 },
   prefTextActive: { color: '#fff' }, 
+  doubleSearchContainer: { 
+    backgroundColor: '#fff', 
+    borderRadius: 20, 
+    padding: 15, 
+    elevation: 10, 
+    marginBottom: 15,
+    borderWidth: 1,
+    borderColor: '#f1f5f9'
+  },
+  searchRow: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    height: 45,
+    gap: 10
+  },
+  searchSeparator: { 
+    height: 1, 
+    backgroundColor: '#f1f5f9', 
+    marginLeft: 30, 
+    marginVertical: 5 
+  },
+  activeInput: { 
+    fontWeight: 'bold', 
+    color: '#1e3a8a',
+    backgroundColor: '#f8fafc',
+    borderRadius: 8
+  },
 });
