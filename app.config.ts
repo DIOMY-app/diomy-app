@@ -31,7 +31,7 @@ const config: ExpoConfig = {
     supabaseUrl: env.supabaseUrl,
     supabaseAnonKey: env.supabaseAnonKey,
     eas: {
-      projectId: env.projectId
+      projectId: "89551eb6-93ef-43b2-9854-d4b92b09b1f4"
     }
   },
 
