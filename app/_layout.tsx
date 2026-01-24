@@ -29,32 +29,48 @@ export default function RootLayout() {
 
   // 🔔 FONCTION POUR RÉCUPÉRER LE TOKEN
   async function registerForPushNotificationsAsync(userId: string) {
-    if (!Device.isDevice) return;
-
-    const { status: existingStatus } = await Notifications.getPermissionsAsync();
-    let finalStatus = existingStatus;
-    
-    if (existingStatus !== 'granted') {
-      const { status } = await Notifications.requestPermissionsAsync();
-      finalStatus = status;
+    if (!Device.isDevice) {
+      console.log("ℹ️ Notification : Ignoré car simulation");
+      return;
     }
-    
-    if (finalStatus !== 'granted') return;
 
-    // Récupération du Token
-    const projectId = "89551eb6-93ef-43b2-9854-d4b92b09b1f4"; // On met l'ID en dur ici aussi par sécurité
-    const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+    try {
+      const { status: existingStatus } = await Notifications.getPermissionsAsync();
+      let finalStatus = existingStatus;
+      
+      if (existingStatus !== 'granted') {
+        const { status } = await Notifications.requestPermissionsAsync();
+        finalStatus = status;
+      }
+      
+      if (finalStatus !== 'granted') {
+        console.log("⚠️ Permission refusée");
+        return;
+      }
 
-    // Sauvegarde dans Supabase
-    if (token) {
-      await supabase
-        .from('profiles')
-        .update({ expo_push_token: token })
-        .eq('id', userId);
-      console.log('✅ Push Token enregistré:', token);
+      // Récupération du Token
+      const projectId = "89551eb6-93ef-43b2-9854-d4b92b09b1f4"; 
+      const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
+
+      // Sauvegarde dans Supabase
+      if (token) {
+        console.log("📡 Tentative d'enregistrement du token...");
+        const { error } = await supabase
+          .from('profiles')
+          .update({ expo_push_token: token })
+          .eq('id', userId);
+
+        if (error) {
+          console.error("❌ Erreur Supabase Token:", error.message);
+        } else {
+          console.log("✅ Token enregistré avec succès dans Supabase !");
+        }
+      }
+    } catch (e) {
+      console.error("❌ Erreur critique notification:", e);
     }
   }
-
+  
   useEffect(() => {
     // 1. Vérification initiale de la session
     supabase.auth.getSession().then(({ data: { session } }) => {
