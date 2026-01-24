@@ -408,7 +408,7 @@ export default function MapDisplay({
   };
 
   const handleLocationSelect = async (lat: number, lon: number, name: string) => {
-    // On crée des variables temporaires pour le calcul immédiat
+    // 1. Mise à jour immédiate de l'interface
     let currentStart = pickupLocation;
     let currentEnd = selectedLocation;
 
@@ -422,32 +422,39 @@ export default function MapDisplay({
       setDestination(name);
     }
     
-    // Si on a les deux points, on calcule la route et le prix
-    const start = searchMode === 'pickup' ? {lat, lon} : pickupLocation;
-    const end = searchMode === 'pickup' ? selectedLocation : {lat, lon};
+    // 2. On vide immédiatement les suggestions pour libérer la bande passante
+    setSuggestions([]);
 
-    if (start && end) {
-      const r = await getRoute(start.lat, start.lon, end.lat, end.lon);
-      if (r) {
-        const distanceKm = r.distance / 1000;
-        setEstimatedDistance(distanceKm.toFixed(1));
-        
-        const isColis = activeService === 'delivery';
-        const basePrice = isColis ? 500 : 250;
-        const threshold = isColis ? 3.0 : 1.5; 
-        const price = Math.ceil((basePrice + (distanceKm > threshold ? (distanceKm - threshold) * 100 : 0)) / 50) * 50;
-        setEstimatedPrice(price);
-        
-        webviewRef.current?.injectJavaScript(`
-          if(markers.d) map.removeLayer(markers.d);
-          markers.d = L.marker([${end.lat}, ${end.lon}]).addTo(map);
-          map.setView([${end.lat}, ${end.lon}], 16);
-          true;
-        `);
+    // 3. Calcul du trajet UNIQUEMENT si on a les deux points
+    if (currentStart && currentEnd) {
+      setEstimatedPrice(null); // On affiche un petit indicateur de chargement visuel
+      
+      try {
+        const r = await getRoute(currentStart.lat, currentStart.lon, currentEnd.lat, currentEnd.lon);
+        if (r) {
+          const distanceKm = r.distance / 1000;
+          setEstimatedDistance(distanceKm.toFixed(1));
+          
+          const isColis = activeService === 'delivery';
+          const basePrice = isColis ? 500 : 250;
+          const threshold = isColis ? 3.0 : 1.5; 
+          const price = Math.ceil((basePrice + (distanceKm > threshold ? (distanceKm - threshold) * 100 : 0)) / 50) * 50;
+          
+          setEstimatedPrice(price);
+          
+          // Mise à jour de la carte sans attendre
+          webviewRef.current?.injectJavaScript(`
+            if(markers.d) map.removeLayer(markers.d);
+            markers.d = L.marker([${currentEnd.lat}, ${currentEnd.lon}]).addTo(map);
+            map.fitBounds(routeLayer.getBounds().pad(0.3));
+            true;
+          `);
+        }
+      } catch (err) {
+        console.error("Erreur calcul rapide:", err);
       }
     }
   };
-
   // ✅ VÉRIFICATION PIN CHAUFFEUR
   const handleVerifyPinAndFinish = async () => {
     const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
