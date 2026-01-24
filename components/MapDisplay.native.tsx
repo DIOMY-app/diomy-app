@@ -498,30 +498,24 @@ export default function MapDisplay({
   };
 
   const resetSearch = () => {
-    setDestination(''); setSuggestions([]); setSelectedLocation(null);
-    setEstimatedPrice(null); setEstimatedDistance(null);
-    setCurrentRideId(null); setRideStatus(null); setPartnerInfo(null);
-    setChatMessages([]); setShowChat(false);
-    setPickupAddress('Ma position actuelle');
-    setSearchMode('destination');
-    isHandlingModal.current = false;
-    lastProcessedRideId.current = null;
-    hasNotifiedArrival.current = false;
-    hasNotifiedProximity.current = false;
-    setHasArrivedAtPickup(false);
-    setIsWaiting(false); setWaitingTime(0); setRealTraveledDistance(0);
-    setActiveService(null); 
-    setShowDeliveryForm(false); 
-    setDeliveryPin(null);
-    setEnteredPin('');
-    webviewRef.current?.injectJavaScript(`
-      if(markers.p) map.removeLayer(markers.p);
-      if(markers.d) map.removeLayer(markers.d);
-      if(routeLayer) map.removeLayer(routeLayer);
-      map.setView([9.4580,-5.6290],15);
-      true;
-    `);
-  };
+  setDestination('');
+  setPickupAddress('Ma position actuelle'); // Remise à zéro du texte
+  setSuggestions([]);
+  setSelectedLocation(null);
+  setEstimatedPrice(null);
+  setEstimatedDistance(null);
+  setSearchMode('destination');
+  
+  // ✅ RE-SYNCHRONISATION GPS
+  getCurrentLocation(true); // Relance la détection GPS et centre la carte
+  
+  // Nettoyage de la carte
+  webviewRef.current?.injectJavaScript(`
+    if(markers.d) map.removeLayer(markers.d);
+    if(routeLayer) map.removeLayer(routeLayer);
+    true;
+  `);
+};
 
   const submitRating = async () => {
     if (userRating === 0 || !finalRideData) return;
@@ -757,6 +751,17 @@ export default function MapDisplay({
                 </View>
               )}
 
+              <TouchableOpacity 
+  style={{ flexDirection: 'row', alignItems: 'center', marginBottom: 10 }} 
+  onPress={() => {
+    setActiveService(null);
+    resetSearch();
+  }}
+>
+  <Ionicons name="arrow-back" size={20} color="#fff" />
+  <Text style={{ color: '#fff', marginLeft: 5, fontWeight: 'bold' }}>Changer de service</Text>
+</TouchableOpacity>
+
               {/* ✅ DOUBLE BARRE DE RECHERCHE */}
               <View style={styles.doubleSearchContainer}>
                 {/* Point de départ */}
@@ -768,12 +773,15 @@ export default function MapDisplay({
                     value={pickupAddress} 
                     onFocus={() => setSearchMode('pickup')}
                     onChangeText={async (t) => {
-                      setPickupAddress(t);
-                      if (t.length > 2) {
-                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
-                        const d = await res.json(); setSuggestions(d.features || []);
-                      }
-                    }} 
+  setPickupAddress(t);
+  if (t.length === 0) {
+    setSuggestions([]); // On vide les suggestions si c'est vide
+    setPickupLocation(null); // On reset la position
+  } else if (t.length > 2) {
+    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
+    const d = await res.json(); setSuggestions(d.features || []);
+  }
+}}
                   />
                 </View>
 
@@ -788,12 +796,15 @@ export default function MapDisplay({
                     value={destination} 
                     onFocus={() => setSearchMode('destination')}
                     onChangeText={async (t) => {
-                      setDestination(t);
-                      if (t.length > 2) {
-                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
-                        const d = await res.json(); setSuggestions(d.features || []);
-                      }
-                    }} 
+  setDestination(t);
+  if (t.length === 0) {
+    setSuggestions([]); // On vide les suggestions
+    setSelectedLocation(null);
+  } else if (t.length > 2) {
+    const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
+    const d = await res.json(); setSuggestions(d.features || []);
+  }
+}}
                   />
                 </View>
               </View>
