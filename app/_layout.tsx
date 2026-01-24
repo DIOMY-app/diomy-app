@@ -42,7 +42,7 @@ export default function RootLayout() {
     if (finalStatus !== 'granted') return;
 
     // Récupération du Token
-    const projectId = Constants.expoConfig?.extra?.eas?.projectId || Constants.easConfig?.projectId;
+    const projectId = "89551eb6-93ef-43b2-9854-d4b92b09b1f4"; // On met l'ID en dur ici aussi par sécurité
     const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
 
     // Sauvegarde dans Supabase
