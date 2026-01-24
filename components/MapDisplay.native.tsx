@@ -105,9 +105,7 @@ export default function MapDisplay({
   const [userRating, setUserRating] = useState(0);
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
 
-  const STADIA_API_KEY = "21bfb3bb-affc-4360-8e0f-c2a636e1db34"; 
-
-  const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
+   const canGoOnline = userStatus === 'validated' || userStatus === 'valide';
 
   const speak = async (text: string) => {
     try {
@@ -643,32 +641,42 @@ export default function MapDisplay({
     return () => { supabase.removeChannel(chatChannel); };
   }, [currentRideId]);
 
-  const mapHtml = `<!DOCTYPE html><html><head><meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" /><link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" /><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  const mapHtml = `<!DOCTYPE html><html><head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no" />
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
       body,html{margin:0;padding:0;height:100%;width:100%;overflow:hidden;}#map{height:100vh;width:100vw;background:#f8fafc;}
       .blue-dot{width:20px;height:20px;background:#2563eb;border:4px solid white;border-radius:50%;box-shadow:0 0 15px rgba(37,99,235,0.7);}
       .korhogo-label{background:transparent;border:none;box-shadow:none;color:#1e3a8a;font-weight:bold;text-shadow:0 0 5px white, 0 0 10px white;font-size:12px;white-space:nowrap;text-align:center;}
-    </style></head><body><div id="map"></div><script>
+    </style></head>
+    <body><div id="map"></div><script>
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
-    L.tileLayer('https://tiles.stadiamaps.com/tiles/osm_bright/{z}/{x}/{y}.png?api_key=${STADIA_API_KEY}',{maxZoom:20, updateWhenIdle: true, keepBuffer: 2}).addTo(map);
+    
+    // ✅ CHANGEMENT : Utilisation des tuiles OpenFreeMap Liberty
+    L.tileLayer('https://tiles.openfreemap.org/styles/liberty/{z}/{x}/{y}.png', {
+        maxZoom: 20, 
+        attribution: '© OpenStreetMap',
+        updateWhenIdle: true, 
+        keepBuffer: 2
+    }).addTo(map);
+
     var markers={};var routeLayer=null;
     var spots = [{n: "Université Peleforo GC", c: [9.4411, -5.6264]},{n: "Hôpital CHR", c: [9.4542, -5.6288]},{n: "Grand Marché", c: [9.4585, -5.6315]}];
     spots.forEach(function(s){ L.marker(s.c, { icon: L.divIcon({ className: 'korhogo-label', html: '<div>'+s.n+'</div>', iconSize: [120, 20], iconAnchor: [60, 10] }), interactive: false }).addTo(map); });
     
-    // ✅ LOGIQUE DE RÉCEPTION DU POINT BLEU
     window.setUserLocation = function(lat, lon, focus) {
         if (markers.p) map.removeLayer(markers.p);
         markers.p = L.marker([lat, lon], {
-            icon: L.divIcon({ 
-                className: 'blue-dot', 
-                iconSize: [20, 20], 
-                iconAnchor: [10, 10] 
-            })
+            icon: L.divIcon({ className: 'blue-dot', iconSize: [20, 20], iconAnchor: [10, 10] })
         }).addTo(map);
         if (focus) map.setView([lat, lon], 17);
     };
 
-    map.on('click',function(e){window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));});</script></body></html>`;
+    map.on('click',function(e){
+        window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));
+    });
+    </script></body></html>`;
 
   if (!isMapReady) return <View style={styles.loader}><ActivityIndicator size="large" color="#009199" /><Text style={styles.loaderText}>DIOMY...</Text></View>;
 
