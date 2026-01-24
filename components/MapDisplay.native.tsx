@@ -653,10 +653,10 @@ export default function MapDisplay({
     <body><div id="map"></div><script>
     var map=L.map('map',{zoomControl:false, fadeAnimation: true, markerZoomAnimation: true}).setView([9.4580,-5.6290],15);
     
-    // ✅ CHANGEMENT : Utilisation des tuiles OpenFreeMap Liberty
+    // ✅ UTILISATION RÉELLE DES TUILES OPENFREEMAP (SANS CLÉ API)
     L.tileLayer('https://tiles.openfreemap.org/styles/liberty/{z}/{x}/{y}.png', {
         maxZoom: 20, 
-        attribution: '© OpenStreetMap',
+        attribution: '© OpenFreeMap © OSM',
         updateWhenIdle: true, 
         keepBuffer: 2
     }).addTo(map);
@@ -677,7 +677,7 @@ export default function MapDisplay({
         window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));
     });
     </script></body></html>`;
-
+    
   if (!isMapReady) return <View style={styles.loader}><ActivityIndicator size="large" color="#009199" /><Text style={styles.loaderText}>DIOMY...</Text></View>;
 
   return (
