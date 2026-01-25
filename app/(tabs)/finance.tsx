@@ -122,25 +122,29 @@ export default function FinanceScreen() {
           const dateSupabase = r.created_at || r.sent_at;
           return dateSupabase && dateSupabase.substring(0, 10) === localISOTime;
         });
+
         const todayBrut = todayRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
-          
-       // ✅ Calcul précis de la commission totale ligne par ligne
+        
+        // Commission du jour (pour le calcul du net journalier)
+        const todayCommission = todayRides.reduce((sum, r) => {
+          return sum + Math.ceil(Number(r.price) * getCommissionRate(r));
+        }, 0);
+
+        // Commission totale (pour l'historique global)
         const totalCommission = rides.reduce((sum, r) => {
-          const rate = getCommissionRate(r);
-          return sum + Math.ceil(Number(r.price) * rate);
+          return sum + Math.ceil(Number(r.price) * getCommissionRate(r));
         }, 0);
 
         setStats({
-          totalEarnings: totalBrut,
-          todayEarnings: todayBrut,
-          weekEarnings: 0,
-          commissionBase: totalCommission, // ✅ Utilise la somme réelle calculée
-          netEarnings: totalBrut - totalCommission,
+          totalEarnings: totalBrut,      // Brut total
+          todayEarnings: todayBrut,     // Brut du jour
+          weekEarnings: todayBrut - todayCommission, // On détourne cette variable pour le NET DU JOUR
+          commissionBase: totalCommission,
+          netEarnings: totalBrut - totalCommission, // Net total
           rideCount: rides.length,
           todayRideCount: todayRides.length, 
           weekRideCount: 0,   
         });
-
         const sortedRides = rides
           .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
           .slice(0, 20); 
@@ -278,12 +282,13 @@ export default function FinanceScreen() {
 
         <View style={styles.statsRowMini}>
             <View style={styles.miniStatCard}>
-                <Text style={styles.miniStatLabel}>AUJOURD'HUI ({stats.todayRideCount})</Text>
+                <Text style={styles.miniStatLabel}>AUJOURD'HUI (BRUT)</Text>
                 <Text style={[styles.miniStatValue, {color: '#1e3a8a'}]}>{stats.todayEarnings.toLocaleString()} F</Text>
             </View>
             <View style={styles.miniStatCard}>
-                <Text style={styles.miniStatLabel}>COMMISSION (12%)</Text>
-                <Text style={[styles.miniStatValue, {color: '#f87171'}]}>{stats.commissionBase.toLocaleString()} F</Text>
+                {/* On utilise weekEarnings où on a stocké le Net du jour */}
+                <Text style={styles.miniStatLabel}>AUJOURD'HUI (NET)</Text>
+                <Text style={[styles.miniStatValue, {color: '#22c55e'}]}>{stats.weekEarnings.toLocaleString()} F</Text>
             </View>
         </View>
 
