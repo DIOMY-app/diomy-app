@@ -268,13 +268,12 @@ export default function MapDisplay({
   const injectLocationToMap = (lat: number, lon: number, forceFocus: boolean = false) => {
     if (!webviewRef.current) return;
     
-    // ✅ On ne centre (focus) que si c'est forcé (bouton GPS) OU si le mode follow est actif
-    const shouldFocus = forceFocus || followUser;
-
+    // ✅ On n'utilise plus "followUser". 
+    // La caméra bouge UNIQUEMENT si forceFocus est "true" (clic sur le bouton GPS)
     const js = `
       (function() {
         if (typeof window.setUserLocation === 'function') {
-          window.setUserLocation(${lat}, ${lon}, ${shouldFocus});
+          window.setUserLocation(${lat}, ${lon}, ${forceFocus});
         } else if (typeof map !== 'undefined') {
           if (typeof markers !== 'undefined') {
             if (markers.p) map.removeLayer(markers.p);
@@ -282,7 +281,7 @@ export default function MapDisplay({
               icon: L.divIcon({ className: 'blue-dot', iconSize: [20, 20], iconAnchor: [10, 10] })
             }).addTo(map);
           }
-          if (${shouldFocus}) map.setView([${lat}, ${lon}], 17);
+          if (${forceFocus}) map.setView([${lat}, ${lon}], 17);
         }
       })();
       true;
@@ -350,14 +349,7 @@ export default function MapDisplay({
     }
   };
 
-  useEffect(() => {
-    const heartbeat = setInterval(() => {
-      if (pickupLocation) {
-        injectLocationToMap(pickupLocation.lat, pickupLocation.lon, false);
-      }
-    }, 4000);
-    return () => clearInterval(heartbeat);
-  }, [pickupLocation]);
+  
 
   useEffect(() => {
     if (role === 'chauffeur' && isOnline) {
@@ -775,15 +767,16 @@ map.on('moveend', function() {
         />
       </View>
 
-      {/* ✅ CURSEUR CENTRAL DE PRÉCISION (Pin fixe au milieu) */}
-      {role === 'passager' && activeService && !rideStatus && (
+      {/* ✅ CURSEUR CENTRAL DE PRÉCISION (Rétabli et Simplifié) */}
+      {!rideStatus && (
         <View style={styles.centerPinContainer} pointerEvents="none">
           <Ionicons 
             name="location" 
-            size={40} 
+            size={42} 
             color={searchMode === 'pickup' ? "#22c55e" : (activeService === 'delivery' ? "#f97316" : "#1e3a8a")} 
           />
-          <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(0,0,0,0.5)', marginTop: -2}} />
+          {/* Ombre au sol pour viser la rue précisément */}
+          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(0,0,0,0.3)', marginTop: -5 }} />
         </View>
       )}
 
@@ -796,14 +789,11 @@ map.on('moveend', function() {
       )}
 
       {/* ✅ UN SEUL BOUTON GPS ICI */}
-      <TouchableOpacity 
+     <TouchableOpacity 
   style={styles.gpsBtn} 
-  onPress={() => {
-    setFollowUser(true); // ✅ On réactive le suivi forcé
-    getCurrentLocation(true); // ✅ On recentre immédiatement
-  }}
+  onPress={() => getCurrentLocation(true)} // ✅ On appelle directement avec 'true'
 >
-  <Ionicons name="locate" size={26} color={followUser ? "#2563eb" : "#1e3a8a"} />
+  <Ionicons name="locate" size={26} color="#1e3a8a" />
 </TouchableOpacity>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
@@ -1205,7 +1195,7 @@ const styles = StyleSheet.create({
   marginTop: -40,
   justifyContent: 'center',
   alignItems: 'center',
-  zIndex: 2,
+  zIndex: 99,
 },
   suggestionText: { fontSize: 14, marginLeft: 10, color: '#1e293b', flex: 1 },
   confirmBtn: { backgroundColor: '#1e3a8a', borderRadius: 20, elevation: 8, marginBottom: 15, padding: 15 },

@@ -41,14 +41,12 @@ export default function FinanceScreen() {
     weekRideCount: 0,  
   });
 
-  // ✅ Fonction pour obtenir le taux correct selon le type
   const getCommissionRate = (ride: any) => {
-    // Si c'est une livraison (présence de package_type ou table spécifique)
     const isColis = ride.package_type !== undefined || ride.recipient_name !== undefined;
     return isColis ? 0.15 : 0.12;
   };
   
-  // ✅ DÉBLOCAGE : On regarde le statut récupéré de la table 'profiles'
+  // Correction ici aussi pour correspondre à la colonne 'status' du profil
   const isNotValidated = driverStatus !== 'validated' && driverStatus !== 'valide'; 
 
   const NUMEROS_COLLECTE = {
@@ -83,18 +81,16 @@ export default function FinanceScreen() {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
 
-      // ✅ 0. RÉCUPÉRATION DU STATUT DANS 'profiles' (Source de vérité admin)
       const { data: profileData } = await supabase
         .from('profiles')
         .select('status')
         .eq('id', user.id)
-        .single();
+        .maybeSingle();
       
       if (profileData) {
         setDriverStatus(profileData.status);
       }
 
-      // 1. APPEL DE LA VUE SQL POUR LE SOLDE NET
       const { data: soldeData } = await supabase
         .from('chauffeur_solde_net')
         .select('solde_disponible')
@@ -105,7 +101,6 @@ export default function FinanceScreen() {
         setSoldeRecharge(Number(soldeData.solde_disponible));
       }
 
-      // 2. RÉCUPÉRATION DES COURSES
       const { data: rides } = await supabase
         .from('rides_request')
         .select('*')
@@ -119,39 +114,31 @@ export default function FinanceScreen() {
         const totalBrut = rides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
         
         const todayRides = rides.filter(r => {
-          const dateSupabase = r.created_at || r.sent_at;
-          return dateSupabase && dateSupabase.substring(0, 10) === localISOTime;
+          const dateValue = r.created_at || r.sent_at;
+          return dateValue && dateValue.substring(0, 10) === localISOTime;
         });
 
         const todayBrut = todayRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
-        
-        // Commission du jour (pour le calcul du net journalier)
-        const todayCommission = todayRides.reduce((sum, r) => {
-          return sum + Math.ceil(Number(r.price) * getCommissionRate(r));
-        }, 0);
-
-        // Commission totale (pour l'historique global)
-        const totalCommission = rides.reduce((sum, r) => {
-          return sum + Math.ceil(Number(r.price) * getCommissionRate(r));
-        }, 0);
+        const todayCommission = todayRides.reduce((sum, r) => sum + Math.ceil(Number(r.price) * getCommissionRate(r)), 0);
+        const totalCommission = rides.reduce((sum, r) => sum + Math.ceil(Number(r.price) * getCommissionRate(r)), 0);
 
         setStats({
-          totalEarnings: totalBrut,      // Brut total
-          todayEarnings: todayBrut,     // Brut du jour
-          weekEarnings: todayBrut - todayCommission, // On détourne cette variable pour le NET DU JOUR
+          totalEarnings: totalBrut,
+          todayEarnings: todayBrut,
+          weekEarnings: todayBrut - todayCommission,
           commissionBase: totalCommission,
-          netEarnings: totalBrut - totalCommission, // Net total
+          netEarnings: totalBrut - totalCommission,
           rideCount: rides.length,
           todayRideCount: todayRides.length, 
           weekRideCount: 0,   
         });
+        
         const sortedRides = rides
-          .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+          .sort((a, b) => new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime())
           .slice(0, 20); 
         setRidesHistory(sortedRides);
       }
 
-      // 3. HISTORIQUE DES RECHARGES
       const { data: allRecharges } = await supabase
         .from('recharges')
         .select('*')
@@ -173,7 +160,7 @@ export default function FinanceScreen() {
 
   const handleManualRecharge = async () => {
     if (isNotValidated) {
-      Alert.alert("DIOMY", "Action impossible tant que votre compte n'est pas validé.");
+      Alert.alert("DIOMY", "Action impossible : compte non validé.");
       return;
     }
 
@@ -186,23 +173,25 @@ export default function FinanceScreen() {
     setIsProcessing(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) return;
+      if (!user) throw new Error("Utilisateur non trouvé");
 
+      // ✅ CORRECTION : Utilisation de 'status' pour correspondre à ta capture d'écran
       const { error } = await supabase
         .from('recharges')
         .insert({ 
           driver_id: user.id, 
           montant: numAmount,
-          statut: 'en_attente'
+          status: 'en_attente' 
         });
 
       if (error) throw error;
+
       setIsSuccess(true);
       setAmount('');
       fetchFinanceData(); 
 
     } catch (err: any) {
-      Alert.alert("DIOMY", "Vérifiez votre connexion internet.");
+      Alert.alert("DIOMY", "Erreur technique : " + (err.message || "Vérifiez votre connexion")); 
     } finally {
       setIsProcessing(false);
     }
@@ -224,7 +213,7 @@ export default function FinanceScreen() {
   };
 
   const formatDate = (dateValue: any) => {
-    if (!dateValue) return "Aujourd'hui";
+    if (!dateValue) return "Date inconnue";
     try {
       const date = new Date(dateValue);
       const j = String(date.getDate()).padStart(2, '0');
@@ -233,7 +222,7 @@ export default function FinanceScreen() {
       const min = String(date.getMinutes()).padStart(2, '0');
       return `${j}/${m} à ${h}:${min}`;
     } catch (e) {
-      return "Date non disponible";
+      return "Format invalide";
     }
   };
 
@@ -286,7 +275,6 @@ export default function FinanceScreen() {
                 <Text style={[styles.miniStatValue, {color: '#1e3a8a'}]}>{stats.todayEarnings.toLocaleString()} F</Text>
             </View>
             <View style={styles.miniStatCard}>
-                {/* On utilise weekEarnings où on a stocké le Net du jour */}
                 <Text style={styles.miniStatLabel}>AUJOURD'HUI (NET)</Text>
                 <Text style={[styles.miniStatValue, {color: '#22c55e'}]}>{stats.weekEarnings.toLocaleString()} F</Text>
             </View>
@@ -324,7 +312,7 @@ export default function FinanceScreen() {
             ridesHistory.length === 0 ? (
                 <View style={styles.emptyBox}><Text style={styles.emptyText}>Aucune course terminée.</Text></View>
             ) : (
-                ridesHistory.map((item) => (
+                ridesHistory.map((item: any) => (
                 <View key={item.id} style={styles.historyItem}>
                     <View style={styles.historyIcon}><FontAwesome5 name="motorcycle" size={16} color="#1e3a8a" /></View>
                     <View style={{ flex: 1, marginLeft: 12 }}>
@@ -332,13 +320,12 @@ export default function FinanceScreen() {
                       <Text style={styles.historyDate}>{formatDate(item.created_at || item.sent_at)}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
-      <Text style={styles.historyPrice}>{item.price?.toLocaleString()} F</Text>
-      {/* ✅ Affiche -12% ou -15% dynamiquement */}
-      <Text style={styles.historyCom}>
-        -{Math.ceil(item.price * getCommissionRate(item)).toLocaleString()} F 
-        ({getCommissionRate(item) === 0.15 ? '15%' : '12%'})
-      </Text>
-    </View>
+                      <Text style={styles.historyPrice}>{item.price?.toLocaleString()} F</Text>
+                      <Text style={styles.historyCom}>
+                        -{Math.ceil(item.price * getCommissionRate(item)).toLocaleString()} F 
+                        ({getCommissionRate(item) === 0.15 ? '15%' : '12%'})
+                      </Text>
+                    </View>
                 </View>
                 ))
             )
@@ -346,20 +333,26 @@ export default function FinanceScreen() {
             rechargesHistory.length === 0 ? (
                 <View style={styles.emptyBox}><Text style={styles.emptyText}>Aucun dépôt effectué.</Text></View>
             ) : (
-                rechargesHistory.map((item) => (
-                <View key={item.id} style={styles.historyItem}>
-                    <View style={[styles.historyIcon, {backgroundColor: item.statut === 'valide' ? '#dcfce7' : '#fef9c3'}]}>
-                        <Ionicons name={item.statut === 'valide' ? "checkmark" : "time"} size={18} color={item.statut === 'valide' ? "#16a34a" : "#ca8a04"} />
+                rechargesHistory.map((item: any) => {
+                  // ✅ CORRECTION : Utilisation de 'status' au lieu de 'statut'
+                  const statusLower = item.status?.toLowerCase().trim();
+                  const isValide = statusLower === 'valide';
+                  
+                  return (
+                    <View key={item.id} style={styles.historyItem}>
+                        <View style={[styles.historyIcon, {backgroundColor: isValide ? '#dcfce7' : '#fef9c3'}]}>
+                            <Ionicons name={isValide ? "checkmark" : "time"} size={18} color={isValide ? "#16a34a" : "#ca8a04"} />
+                        </View>
+                        <View style={{ flex: 1, marginLeft: 12 }}>
+                            <Text style={styles.historyDest}>Dépôt de {item.montant} F</Text>
+                            <Text style={styles.historyDate}>{formatDate(item.created_at)}</Text>
+                        </View>
+                        <View style={[styles.statusBadgeStyle, {backgroundColor: isValide ? '#22c55e' : '#eab308'}]}>
+                            <Text style={styles.statusText}>{item.status?.toUpperCase() || 'EN ATTENTE'}</Text>
+                        </View>
                     </View>
-                    <View style={{ flex: 1, marginLeft: 12 }}>
-                        <Text style={styles.historyDest}>Dépôt de {item.montant} F</Text>
-                        <Text style={styles.historyDate}>{formatDate(item.created_at)}</Text>
-                    </View>
-                    <View style={[styles.statusBadgeStyle, {backgroundColor: item.statut === 'valide' ? '#22c55e' : '#eab308'}]}>
-                        <Text style={styles.statusText}>{item.statut?.toUpperCase() || 'EN ATTENTE'}</Text>
-                    </View>
-                </View>
-                ))
+                  );
+                })
             )
           )}
         </View>
