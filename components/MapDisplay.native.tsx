@@ -76,7 +76,7 @@ export default function MapDisplay({
   const [acceptsTransport, setAcceptsTransport] = useState(true); 
   const [acceptsDelivery, setAcceptsDelivery] = useState(true);
   const [incomingRide, setIncomingRide] = useState<any>(null);
- const [pickupAddress, setPickupAddress] = useState('Ma position actuelle'); // Texte du départ
+  const [pickupAddress, setPickupAddress] = useState('Ma position actuelle'); // Texte du départ
   const [destination, setDestination] = useState(''); // Texte de l'arrivée
   const [searchMode, setSearchMode] = useState<'pickup' | 'destination'>('destination'); // Savoir quel champ on remplit
   const [suggestions, setSuggestions] = useState<any[]>([]);
@@ -88,6 +88,7 @@ export default function MapDisplay({
   const [finalRideData, setFinalRideData] = useState<any>(null);
   const [isMapReady, setIsMapReady] = useState(false); 
   const [partnerInfo, setPartnerInfo] = useState<any>(null);
+  const [followUser, setFollowUser] = useState(true);
 
   const [estimatedPrice, setEstimatedPrice] = useState<number | null>(null);
   const [estimatedDistance, setEstimatedDistance] = useState<string | null>(null);
@@ -264,29 +265,28 @@ export default function MapDisplay({
     return R * c;
   };
 
-  const injectLocationToMap = (lat: number, lon: number, focus: boolean = false) => {
+  const injectLocationToMap = (lat: number, lon: number, forceFocus: boolean = false) => {
     if (!webviewRef.current) return;
     
-    // ✅ ON UNIFIE TOUT DANS UNE SEULE INJECTION JS
+    // ✅ On ne centre (focus) que si c'est forcé (bouton GPS) OU si le mode follow est actif
+    const shouldFocus = forceFocus || followUser;
+
     const js = `
       (function() {
         if (typeof window.setUserLocation === 'function') {
-          // Utilise la fonction définie dans ton HTML
-          window.setUserLocation(${lat}, ${lon}, ${focus});
+          window.setUserLocation(${lat}, ${lon}, ${shouldFocus});
         } else if (typeof map !== 'undefined') {
-          // Secours si setUserLocation n'est pas encore prêt
           if (typeof markers !== 'undefined') {
             if (markers.p) map.removeLayer(markers.p);
             markers.p = L.marker([${lat}, ${lon}], {
               icon: L.divIcon({ className: 'blue-dot', iconSize: [20, 20], iconAnchor: [10, 10] })
             }).addTo(map);
           }
-          if (${focus}) map.setView([${lat}, ${lon}], 17);
+          if (${shouldFocus}) map.setView([${lat}, ${lon}], 17);
         }
       })();
       true;
     `;
-    
     webviewRef.current.injectJavaScript(js);
   };
   
@@ -744,7 +744,11 @@ map.on('moveend', function() {
           onMessage={async (e) => {
             const data = JSON.parse(e.nativeEvent.data);
             
-            if (data.type === 'move_start') setIsMoving(true);
+            // ✅ ACTION : Quand l'utilisateur touche et bouge la carte
+            if (data.type === 'move_start') {
+              setIsMoving(true);
+              setFollowUser(false); // On coupe le retour forcé vers le point bleu
+            }
 
             if (data.type === 'map_move') {
               setIsMoving(false);
@@ -767,7 +771,7 @@ map.on('moveend', function() {
             if (data.type === 'map_click') {
                handleLocationSelect(data.lat, data.lon, "Point sélectionné");
             }
-          }} 
+          }}
         />
       </View>
 
@@ -792,9 +796,15 @@ map.on('moveend', function() {
       )}
 
       {/* ✅ UN SEUL BOUTON GPS ICI */}
-      <TouchableOpacity style={styles.gpsBtn} onPress={() => getCurrentLocation(true)}>
-        <Ionicons name="locate" size={26} color="#1e3a8a" />
-      </TouchableOpacity>
+      <TouchableOpacity 
+  style={styles.gpsBtn} 
+  onPress={() => {
+    setFollowUser(true); // ✅ On réactive le suivi forcé
+    getCurrentLocation(true); // ✅ On recentre immédiatement
+  }}
+>
+  <Ionicons name="locate" size={26} color={followUser ? "#2563eb" : "#1e3a8a"} />
+</TouchableOpacity>
 
       <KeyboardAvoidingView behavior={Platform.OS === "ios" ? "padding" : "height"} style={styles.keyboardContainer} pointerEvents="box-none">
         <View style={styles.overlay}>
