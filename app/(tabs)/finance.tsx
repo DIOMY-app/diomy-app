@@ -41,8 +41,12 @@ export default function FinanceScreen() {
     weekRideCount: 0,  
   });
 
-  // ✅ RÈGLE : Commission réduite à 12%
-  const COMMISSION_RATE = 0.12;
+  // ✅ Fonction pour obtenir le taux correct selon le type
+  const getCommissionRate = (ride: any) => {
+    // Si c'est une livraison (présence de package_type ou table spécifique)
+    const isColis = ride.package_type !== undefined || ride.recipient_name !== undefined;
+    return isColis ? 0.15 : 0.12;
+  };
   
   // ✅ DÉBLOCAGE : On regarde le statut récupéré de la table 'profiles'
   const isNotValidated = driverStatus !== 'validated' && driverStatus !== 'valide'; 
@@ -120,13 +124,18 @@ export default function FinanceScreen() {
         });
         const todayBrut = todayRides.reduce((sum, r) => sum + (Number(r.price) || 0), 0);
           
+       // ✅ Calcul précis de la commission totale ligne par ligne
+        const totalCommission = rides.reduce((sum, r) => {
+          const rate = getCommissionRate(r);
+          return sum + Math.ceil(Number(r.price) * rate);
+        }, 0);
+
         setStats({
           totalEarnings: totalBrut,
           todayEarnings: todayBrut,
           weekEarnings: 0,
-          // ✅ CALCUL COMMISSION 12% ARRONDIE AU CHIFFRE SUPÉRIEUR
-          commissionBase: Math.ceil(totalBrut * COMMISSION_RATE),
-          netEarnings: totalBrut - Math.ceil(totalBrut * COMMISSION_RATE),
+          commissionBase: totalCommission, // ✅ Utilise la somme réelle calculée
+          netEarnings: totalBrut - totalCommission,
           rideCount: rides.length,
           todayRideCount: todayRides.length, 
           weekRideCount: 0,   
@@ -318,9 +327,13 @@ export default function FinanceScreen() {
                       <Text style={styles.historyDate}>{formatDate(item.created_at || item.sent_at)}</Text>
                     </View>
                     <View style={{ alignItems: 'flex-end' }}>
-                      <Text style={styles.historyPrice}>{item.price?.toLocaleString()} F</Text>
-                      <Text style={styles.historyCom}>-{Math.ceil(item.price * COMMISSION_RATE).toLocaleString()} F</Text>
-                    </View>
+      <Text style={styles.historyPrice}>{item.price?.toLocaleString()} F</Text>
+      {/* ✅ Affiche -12% ou -15% dynamiquement */}
+      <Text style={styles.historyCom}>
+        -{Math.ceil(item.price * getCommissionRate(item)).toLocaleString()} F 
+        ({getCommissionRate(item) === 0.15 ? '15%' : '12%'})
+      </Text>
+    </View>
                 </View>
                 ))
             )
