@@ -70,6 +70,7 @@ export default function MapDisplay({
 
   const [role, setRole] = useState<string | null>(initialRole || null);
   const [userId, setUserId] = useState<string | null>(null);
+  const [canDoTaxi, setCanDoTaxi] = useState(false);
   const [userScore, setUserScore] = useState<number>(100); 
   const [isOnline, setIsOnline] = useState(false);
   const [acceptsTransport, setAcceptsTransport] = useState(true); 
@@ -566,10 +567,21 @@ export default function MapDisplay({
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) return;
         setUserId(user.id);
-        const { data: prof } = await supabase.from('profiles').select('role, score').eq('id', user.id).maybeSingle();
-        const { data: cond } = await supabase.from('conducteurs').select('id, is_online').eq('id', user.id).maybeSingle();
-        setRole((cond || prof?.role === 'chauffeur') ? "chauffeur" : "passager");
-        setUserScore(prof?.score ?? 100);
+        const { data: prof } = await supabase
+  .from('profiles')
+  .select('role, score, can_do_taxi') // Ajout de can_do_taxi ici
+  .eq('id', user.id)
+  .maybeSingle();
+
+const { data: cond } = await supabase
+  .from('conducteurs')
+  .select('id, is_online')
+  .eq('id', user.id)
+  .maybeSingle();
+
+setRole((cond || prof?.role === 'chauffeur') ? "chauffeur" : "passager");
+setUserScore(prof?.score ?? 100);
+setCanDoTaxi(prof?.can_do_taxi ?? false); // On stocke la permission
         if (cond) setIsOnline(cond.is_online);
         Speech.speak("", { language: 'fr' });
         setIsMapReady(true);
@@ -907,16 +919,35 @@ map.on('moveend', function() {
                 <View style={styles.preferenceBox}>
                   <Text style={styles.preferenceTitle}>QUE SOUHAITEZ-VOUS FAIRE ?</Text>
                   <View style={styles.preferenceRow}>
-  {/* BOUTON TAXI - Devient Vert si activé */}
+  {/* BOUTON TAXI - Verrouillé si pas de permission canDoTaxi */}
   <TouchableOpacity 
     style={[
       styles.prefBtn, 
-      acceptsTransport ? {backgroundColor: '#22c55e', borderColor: '#22c55e'} : {backgroundColor: '#f1f5f9', borderColor: '#1e3a8a'}
+      acceptsTransport ? {backgroundColor: '#22c55e', borderColor: '#22c55e'} : {backgroundColor: '#f1f5f9', borderColor: '#1e3a8a'},
+      !canDoTaxi && { opacity: 0.5, backgroundColor: '#e2e8f0', borderColor: '#cbd5e1' } // Style grisé si interdit
     ]} 
-    onPress={() => setAcceptsTransport(!acceptsTransport)}
+    onPress={() => {
+      if (!canDoTaxi) {
+        Alert.alert(
+          "ACCÈS REFUSÉ", 
+          "Votre moto doit être validée physiquement pour le transport de passagers. Veuillez contacter le support."
+        );
+        return;
+      }
+      setAcceptsTransport(!acceptsTransport);
+    }}
   >
-    <Ionicons name="people" size={18} color={acceptsTransport ? "#fff" : "#1e3a8a"} />
-    <Text style={[styles.prefText, {color: acceptsTransport ? "#fff" : "#1e3a8a"}]}>TAXI</Text>
+    <Ionicons 
+      name="people" 
+      size={18} 
+      color={!canDoTaxi ? "#94a3b8" : (acceptsTransport ? "#fff" : "#1e3a8a")} 
+    />
+    <Text style={[
+      styles.prefText, 
+      {color: !canDoTaxi ? "#94a3b8" : (acceptsTransport ? "#fff" : "#1e3a8a")}
+    ]}>
+      TAXI
+    </Text>
   </TouchableOpacity>
 
   {/* BOUTON COLIS - Devient Vert si activé */}

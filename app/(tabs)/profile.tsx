@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { 
   View, Text, StyleSheet, TouchableOpacity, Alert, ActivityIndicator, 
-  Image, ScrollView, RefreshControl, Dimensions, Modal, TextInput 
+  Image, ScrollView, RefreshControl, Dimensions, Modal, TextInput, Linking 
 } from 'react-native';
 import { supabase } from '../../lib/supabase'; 
 import { useRouter } from 'expo-router';
@@ -214,6 +214,26 @@ export default function ProfileScreen() {
     }
   };
 
+// ✅ INSERTION ICI
+  const openSupport = async () => {
+    const phone = "+2250172296262"; // Ton numéro WhatsApp
+    const msg = "Bonjour DIOMY, j'ai besoin d'aide avec mon compte.";
+    const url = `whatsapp://send?phone=${phone}&text=${encodeURIComponent(msg)}`;
+    
+    try {
+      const supported = await Linking.canOpenURL(url);
+      if (supported) {
+        await Linking.openURL(url);
+      } else {
+        // Si whatsapp:// ne marche pas, on tente le lien web standard (marche partout)
+        await Linking.openURL(`https://wa.me/${phone.replace('+', '')}?text=${encodeURIComponent(msg)}`);
+      }
+    } catch (error) {
+      Alert.alert("Erreur", "Impossible d'ouvrir WhatsApp.");
+    }
+  };
+
+
   const formatDate = (dateValue: any) => {
     if (!dateValue) return "";
     const date = new Date(dateValue);
@@ -368,10 +388,27 @@ export default function ProfileScreen() {
           </View>
         )}
 
+     {/* ✅ SECTION ASSISTANCE WHATSAPP */}
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Besoin d'aide ?</Text>
+          <TouchableOpacity style={styles.supportBtn} onPress={openSupport}>
+            <View style={styles.supportIconBox}>
+              <Ionicons name="logo-whatsapp" size={24} color="#fff" />
+            </View>
+            <View style={{ flex: 1, marginLeft: 12 }}>
+              <Text style={styles.supportTextMain}>Contacter le Support DIOMY</Text>
+              <Text style={styles.supportSubText}>Une question ? Un problème ? Écrivez-nous.</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color="#25D366" />
+          </TouchableOpacity>
+        </View>
+
+        {/* Ton bouton de déconnexion actuel suit ici */}
         <TouchableOpacity style={styles.signOutBtn} onPress={handleSignOut}>
           <Text style={styles.signOutText}>Déconnexion</Text>
         </TouchableOpacity>
 
+        
         <View style={{ height: 100 }} />
       </ScrollView>
 
@@ -438,5 +475,33 @@ const styles = StyleSheet.create({
   cancelBtn: { flex: 1, padding: 15, alignItems: 'center' },
   saveBtn: { flex: 1, backgroundColor: '#1e3a8a', padding: 15, borderRadius: 12, alignItems: 'center' },
   cancelText: { color: '#64748b', fontWeight: 'bold' },
+  supportBtn: { 
+    flexDirection: 'row', 
+    alignItems: 'center', 
+    backgroundColor: '#fff', 
+    padding: 15, 
+    borderRadius: 20, 
+    elevation: 2,
+    borderWidth: 1,
+    borderColor: '#dcfce7' // Une bordure très légère verte
+  },
+  supportIconBox: { 
+    width: 44, 
+    height: 44, 
+    borderRadius: 12, 
+    backgroundColor: '#25D366', 
+    justifyContent: 'center', 
+    alignItems: 'center' 
+  },
+  supportTextMain: { 
+    fontSize: 15, 
+    fontWeight: 'bold', 
+    color: '#1e293b' 
+  },
+  supportSubText: { 
+    fontSize: 12, 
+    color: '#64748b', 
+    marginTop: 2 
+  },
   saveText: { color: '#fff', fontWeight: 'bold' }
 });
