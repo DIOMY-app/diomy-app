@@ -103,6 +103,7 @@ export default function MapDisplay({
   const [chatMessages, setChatMessages] = useState<any[]>([]);
   const [newMessage, setNewMessage] = useState('');
   const chatScrollRef = useRef<ScrollView>(null);
+  const [isMoving, setIsMoving] = useState(false);
 
   const [userRating, setUserRating] = useState(0);
   const [isSubmittingRating, setIsSubmittingRating] = useState(false);
@@ -696,45 +697,90 @@ export default function MapDisplay({
     map.on('click',function(e){
         window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));
     });
+
+    map.on('movestart', function() {
+    window.ReactNativeWebView.postMessage(JSON.stringify({type:'move_start'}));
+});
+
+map.on('moveend', function() {
+    var center = map.getCenter();
+    window.ReactNativeWebView.postMessage(JSON.stringify({
+        type: 'map_move',
+        lat: center.lat,
+        lon: center.lng
+    }));
+});
     </script></body></html>`;
     
   if (!isMapReady) return <View style={styles.loader}><ActivityIndicator size="large" color="#009199" /><Text style={styles.loaderText}>DIOMY...</Text></View>;
 
   return (
     <View style={styles.container}>
-      <View style={StyleSheet.absoluteFill}>
-        <WebView 
-  ref={webviewRef} 
-  originWhitelist={['*']} 
-  source={{ html: mapHtml }} 
-  style={{ flex: 1, backgroundColor: 'transparent' }} 
-  javaScriptEnabled={true} 
-  domStorageEnabled={true} 
-  onLoadEnd={() => {
-  // On attend 500ms que Leaflet s'initialise vraiment
-  setTimeout(() => {
-    if (pickupLocation) {
-      injectLocationToMap(pickupLocation.lat, pickupLocation.lon, true);
-    }
-  }, 500);
-}}
+      <View style={StyleSheet.absoluteFill}>
+        <WebView 
+          ref={webviewRef} 
+          originWhitelist={['*']} 
+          source={{ html: mapHtml }} 
+          style={{ flex: 1, backgroundColor: 'transparent' }} 
+          javaScriptEnabled={true} 
+          domStorageEnabled={true} 
+          onLoadEnd={() => {
+            setTimeout(() => {
+              if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, true);
+            }, 500);
+          }}
+          onMessage={async (e) => {
+            const data = JSON.parse(e.nativeEvent.data);
+            
+            if (data.type === 'move_start') setIsMoving(true);
 
-  onMessage={async (e) => {
-    // ... ton code onMessage actuel
-  }} 
-/>
+            if (data.type === 'map_move') {
+              setIsMoving(false);
+              const newPos = { lat: data.lat, lon: data.lon };
+              
+              if (searchMode === 'pickup') {
+                setPickupLocation(newPos);
+                setPickupAddress("Position sur la carte");
+              } else {
+                setSelectedLocation(newPos);
+                setDestination("Position sur la carte");
+              }
 
-      </View>
+              // ✅ RECALCUL DU TRAJET AUTOMATIQUE
+              const start = searchMode === 'pickup' ? newPos : pickupLocation;
+              const end = searchMode === 'destination' ? newPos : selectedLocation;
+              if (start && end) await getRoute(start.lat, start.lon, end.lat, end.lon);
+            }
 
-      {/* ✅ MÉMOIRE CODE PIN (Badge permanent) */}
-      {deliveryPin && (rideStatus === 'pending' || rideStatus === 'accepted' || rideStatus === 'in_progress') && (
-        <View style={styles.pinReminder}>
-          <Text style={styles.pinLabel}>CODE COLIS</Text>
-          <Text style={styles.pinValue}>{deliveryPin}</Text>
-        </View>
-      )}
+            if (data.type === 'map_click') {
+               handleLocationSelect(data.lat, data.lon, "Point sélectionné");
+            }
+          }} 
+        />
+      </View>
 
-     <TouchableOpacity style={styles.gpsBtn} onPress={() => getCurrentLocation(true)}>
+      {/* ✅ CURSEUR CENTRAL DE PRÉCISION (Pin fixe au milieu) */}
+      {role === 'passager' && activeService && !rideStatus && (
+        <View style={styles.centerPinContainer} pointerEvents="none">
+          <Ionicons 
+            name="location" 
+            size={40} 
+            color={searchMode === 'pickup' ? "#22c55e" : (activeService === 'delivery' ? "#f97316" : "#1e3a8a")} 
+          />
+          <View style={{width: 4, height: 4, borderRadius: 2, backgroundColor: 'rgba(0,0,0,0.5)', marginTop: -2}} />
+        </View>
+      )}
+
+      {/* ✅ MÉMOIRE CODE PIN (Badge permanent) */}
+      {deliveryPin && (rideStatus === 'pending' || rideStatus === 'accepted' || rideStatus === 'in_progress') && (
+        <View style={styles.pinReminder}>
+          <Text style={styles.pinLabel}>CODE COLIS</Text>
+          <Text style={styles.pinValue}>{deliveryPin}</Text>
+        </View>
+      )}
+
+      {/* ✅ UN SEUL BOUTON GPS ICI */}
+      <TouchableOpacity style={styles.gpsBtn} onPress={() => getCurrentLocation(true)}>
         <Ionicons name="locate" size={26} color="#1e3a8a" />
       </TouchableOpacity>
 
@@ -746,127 +792,70 @@ export default function MapDisplay({
             <ServiceSelector onSelect={(m) => setActiveService(m)} />
           )}
 
-          {/* ✅ RECHERCHE DESTINATION */}
+          {/* ✅ PANNEAU RECHERCHE PASSAGER */}
           {role === 'passager' && activeService !== null && !rideStatus && !showDeliveryForm && (
             <View style={styles.passengerPane}>
-              
-              {/* ✅ 1. BOUTON RETOUR */}
-              <TouchableOpacity 
-                style={styles.backToServiceBtn} 
-                onPress={() => {
-                  setActiveService(null);
-                  resetSearch();
-                }}
-              >
+              <TouchableOpacity style={styles.backToServiceBtn} onPress={() => { setActiveService(null); resetSearch(); }}>
                 <Ionicons name="arrow-back-circle" size={24} color="#fff" />
                 <Text style={styles.backToServiceText}>Changer de service</Text>
               </TouchableOpacity>
 
-              {/* ✅ 2. DOUBLE BARRE DE RECHERCHE */}
               <View style={styles.doubleSearchContainer}>
-                {/* Point de départ */}
                 <View style={styles.searchRow}>
                   <Ionicons name="radio-button-on" size={20} color="#22c55e" />
                   <TextInput 
                     style={[styles.input, searchMode === 'pickup' && styles.activeInput]} 
-                    placeholder="Lieu de ramassage" 
-                    value={pickupAddress} 
-                    onFocus={() => { setSearchMode('pickup'); setSuggestions([]); }}
+                    placeholder="Lieu de ramassage" value={pickupAddress} onFocus={() => {setSearchMode('pickup'); setSuggestions([]);}}
                     onChangeText={async (t) => {
                       setPickupAddress(t);
-                      if (t.length === 0) { 
-                        setSuggestions([]); 
-                        setPickupLocation(null); 
-                      } else if (t.length > 2) {
-                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
-                        const d = await res.json(); 
-                        setSuggestions(d.features || []);
-                      }
+                      if (t.length > 2) {
+                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.7,9.35,-5.55,9.55&limit=5`);
+                        const d = await res.json(); setSuggestions(d.features || []);
+                      } else { setSuggestions([]); }
                     }} 
                   />
                 </View>
-
                 <View style={styles.searchSeparator} />
-
-                {/* Destination */}
                 <View style={styles.searchRow}>
                   <Ionicons name="location" size={20} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} />
                   <TextInput 
                     style={[styles.input, searchMode === 'destination' && styles.activeInput]} 
-                    placeholder={activeService === 'delivery' ? "Lieu de livraison" : "Où allez-vous ?"} 
-                    value={destination} 
-                    onFocus={() => { setSearchMode('destination'); setSuggestions([]); }}
+                    placeholder="Lieu de livraison" value={destination} onFocus={() => {setSearchMode('destination'); setSuggestions([]);}}
                     onChangeText={async (t) => {
                       setDestination(t);
-                      if (t.length === 0) { 
-                        setSuggestions([]); 
-                        setSelectedLocation(null); 
-                      } else if (t.length > 2) {
-                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.70,9.35,-5.55,9.55&limit=5`);
-                        const d = await res.json(); 
-                        setSuggestions(d.features || []);
-                      }
+                      if (t.length > 2) {
+                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.7,9.35,-5.55,9.55&limit=5`);
+                        const d = await res.json(); setSuggestions(d.features || []);
+                      } else { setSuggestions([]); }
                     }} 
                   />
                 </View>
               </View>
 
-              {/* ✅ 3. LISTE DES SUGGESTIONS (Placée APRÈS les barres) */}
               {suggestions.length > 0 && (
                 <View style={styles.suggestionsContainer}>
                   <ScrollView keyboardShouldPersistTaps="handled">
                     {suggestions.map((item, i) => (
-                      <TouchableOpacity 
-                        key={i} 
-                        style={styles.suggestionItem} 
-                        onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}
-                      >
-                        <Ionicons name="location-outline" size={20} color="#64748b" />
-                        <Text style={styles.suggestionText}>{item.properties.name}</Text>
+                      <TouchableOpacity key={i} style={styles.suggestionItem} onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}>
+                        <Ionicons name="location-outline" size={20} color="#64748b" /><Text style={styles.suggestionText}>{item.properties.name}</Text>
                       </TouchableOpacity>
                     ))}
                   </ScrollView>
                 </View>
               )}
 
-              {/* ✅ 4. BOUTON CONFIRMATION (Tout en bas) */}
               {selectedLocation && pickupLocation && destination.length > 0 && suggestions.length === 0 && (
                 <TouchableOpacity 
                   style={[styles.confirmBtn, activeService === 'delivery' && {backgroundColor: '#f97316'}]} 
                   onPress={async () => {
                     if (activeService === 'transport') {
-                      const { data: drivers } = await supabase.rpc('find_nearest_driver', { 
-                        px_lat: pickupLocation?.lat, 
-                        px_lon: pickupLocation?.lon, 
-                        max_dist: 2000, 
-                        service_type: activeService 
-                      });
+                      const { data: drivers } = await supabase.rpc('find_nearest_driver', { px_lat: pickupLocation.lat, px_lon: pickupLocation.lon, max_dist: 2000, service_type: activeService });
                       if (drivers?.[0]) {
-                        const { data } = await supabase.from('rides_request').insert([{ 
-                          passenger_id: userId, 
-                          driver_id: drivers[0].id, 
-                          status: 'pending', 
-                          destination_name: destination, 
-                          dest_lat: selectedLocation.lat, 
-                          dest_lon: selectedLocation.lon, 
-                          pickup_lat: pickupLocation?.lat, 
-                          pickup_lon: pickupLocation?.lon, 
-                          price: estimatedPrice || 500 
-                        }]).select().single();
-                        if (data) { 
-                          setRideStatus('pending'); 
-                          setCurrentRideId(data.id); 
-                          speak("Recherche de chauffeur."); 
-                          fetchPartnerInfo(drivers[0].id); 
-                        }
-                      } else { 
-                        Alert.alert("DIOMY", "Aucun chauffeur à proximité."); 
-                      }
-                    } else { 
-                      setShowDeliveryForm(true); 
-                    }
-                  }}
-                >
+                        const { data } = await supabase.from('rides_request').insert([{ passenger_id: userId, driver_id: drivers[0].id, status: 'pending', destination_name: destination, dest_lat: selectedLocation.lat, dest_lon: selectedLocation.lon, pickup_lat: pickupLocation.lat, pickup_lon: pickupLocation.lon, price: estimatedPrice || 500 }]).select().single();
+                        if (data) { setRideStatus('pending'); setCurrentRideId(data.id); speak("Recherche de chauffeur."); fetchPartnerInfo(drivers[0].id); }
+                      } else { Alert.alert("DIOMY", "Aucun chauffeur à proximité."); }
+                    } else { setShowDeliveryForm(true); }
+                  }}>
                   <View style={styles.priceContainer}>
                     <View style={styles.priceLeft}>
                         <Text style={styles.distLabel}>{estimatedDistance} km</Text>
@@ -878,14 +867,10 @@ export default function MapDisplay({
               )}
             </View>
           )}
-            
+
           {/* ✅ FORMULAIRE COLIS */}
           {showDeliveryForm && activeService === 'delivery' && !rideStatus && (
-            <DeliveryForm 
-              onConfirm={handleDeliveryOrder} 
-              onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} 
-              initialPrice={estimatedPrice} 
-            />
+            <DeliveryForm onConfirm={handleDeliveryOrder} onCancel={() => { setShowDeliveryForm(false); setActiveService(null); }} initialPrice={estimatedPrice} />
           )}
 
           {/* ✅ IDENTITY CARD */}
@@ -1171,6 +1156,16 @@ const styles = StyleSheet.create({
     borderColor: '#e2e8f0' 
   },
   suggestionItem: { padding: 15, borderBottomWidth: 1, borderColor: '#f1f5f9', flexDirection: 'row', alignItems: 'center' },
+  centerPinContainer: {
+  position: 'absolute',
+  top: '50%',
+  left: '50%',
+  marginLeft: -20,
+  marginTop: -40,
+  justifyContent: 'center',
+  alignItems: 'center',
+  zIndex: 2,
+},
   suggestionText: { fontSize: 14, marginLeft: 10, color: '#1e293b', flex: 1 },
   confirmBtn: { backgroundColor: '#1e3a8a', borderRadius: 20, elevation: 8, marginBottom: 15, padding: 15 },
   priceContainer: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
