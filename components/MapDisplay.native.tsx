@@ -304,46 +304,56 @@ export default function MapDisplay({
       injectLocationToMap(currentPos.lat, currentPos.lon, forceFocus || !hasCenteredInitially.current);
 
       await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.High, distanceInterval: 5 },
-        async (location) => {
-          const { latitude, longitude } = location.coords;
-          const currentPos = { lat: latitude, lon: longitude };
+        { accuracy: Location.Accuracy.High, distanceInterval: 5 },
+        async (location) => {
+          const { latitude, longitude } = location.coords;
+          const currentPos = { lat: latitude, lon: longitude };
 
-          // ✅ LOGIQUE PROXIMITÉ 500M (Phase 2)
-          if (role === 'chauffeur' && rideStatus === 'in_progress' && !hasNotifiedProximity.current && selectedLocation) {
-            const dToDest = calculateDistance(latitude, longitude, selectedLocation.lat, selectedLocation.lon) * 1000;
-            if (dToDest < 500) {
-              hasNotifiedProximity.current = true;
-              sendMessage("🚀 Je suis à moins de 500m de l'arrivée !");
-              sendPushNotification("DIOMY", "Votre colis arrive dans 2 minutes !");
-            }
-          }
+          // ✅ LOGIQUE PROXIMITÉ 500M (Phase 2)
+          if (role === 'chauffeur' && rideStatus === 'in_progress' && !hasNotifiedProximity.current && selectedLocation) {
+            const dToDest = calculateDistance(latitude, longitude, selectedLocation.lat, selectedLocation.lon) * 1000;
+            if (dToDest < 500) {
+              hasNotifiedProximity.current = true;
+              sendMessage("🚀 Je suis à moins de 500m de l'arrivée !");
+              sendPushNotification("DIOMY", "Votre colis arrive dans 2 minutes !");
+            }
+          }
 
-          if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current && currentRideId) {
-              const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-              const { data: ride } = await supabase.from(table).select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
-              if (ride) {
-                  const dist = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000;
-                  if (dist < 50) {
-                      hasNotifiedArrival.current = true;
-                      setHasArrivedAtPickup(true);
-                      sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
-                      speak("Vous êtes arrivé au point de rendez-vous.");
-                      Vibration.vibrate(500);
-                  }
-              }
-          }
+          // ✅ LOGIQUE ARRIVÉE AU POINT DE RETRAIT
+          if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current && currentRideId) {
+              const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+              const { data: ride } = await supabase.from(table).select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
+              if (ride) {
+                  const dist = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000;
+                  if (dist < 50) {
+                      hasNotifiedArrival.current = true;
+                      setHasArrivedAtPickup(true);
+                      sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
+                      speak("Vous êtes arrivé au point de rendez-vous.");
+                      Vibration.vibrate(500);
+                  }
+              }
+          }
 
-          if (rideStatus === 'in_progress' && lastLocForDistance.current) {
-            const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
-            setRealTraveledDistance(prev => prev + d);
-          }
-          lastLocForDistance.current = currentPos;
-          setPickupLocation(currentPos);
-          injectLocationToMap(latitude, longitude, !hasCenteredInitially.current);
-          if (!hasCenteredInitially.current) hasCenteredInitially.current = true;
-        }
-      );
+          if (rideStatus === 'in_progress' && lastLocForDistance.current) {
+            const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
+            setRealTraveledDistance(prev => prev + d);
+          }
+
+          lastLocForDistance.current = currentPos;
+          setPickupLocation(currentPos);
+
+          // 🛡️ RÉVOLUTION : On met à jour le point bleu SANS bouger la caméra (forceFocus = false)
+          // Le seul moment où la caméra bouge, c'est si l'utilisateur appuie sur la Mire.
+          injectLocationToMap(latitude, longitude, false);
+
+          // On ne centre automatiquement qu'une seule fois au tout premier chargement
+          if (!hasCenteredInitially.current) {
+            injectLocationToMap(latitude, longitude, true);
+            hasCenteredInitially.current = true;
+          }
+        }
+      );
     } catch (error) {
       console.log("Erreur GPS:", error);
     }
@@ -730,7 +740,8 @@ map.on('moveend', function() {
           domStorageEnabled={true} 
           onLoadEnd={() => {
             setTimeout(() => {
-              if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, true);
+              // ✅ On met à jour la position, mais on ne FORCE PLUS le centrage (false)
+              if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, false);
             }, 500);
           }}
           onMessage={async (e) => {
