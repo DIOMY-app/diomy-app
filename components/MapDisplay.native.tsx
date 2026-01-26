@@ -81,6 +81,7 @@ export default function MapDisplay({
   const [searchMode, setSearchMode] = useState<'pickup' | 'destination'>('destination'); // Savoir quel champ on remplit
   const [suggestions, setSuggestions] = useState<any[]>([]);
   const [pickupLocation, setPickupLocation] = useState<{lat: number, lon: number} | null>(null);
+  const [mapCenterLocation, setMapCenterLocation] = useState<{lat: number, lon: number} | null>(null); // ✅ Nouvel état dédié
   const [selectedLocation, setSelectedLocation] = useState<{lat: number, lon: number} | null>(null);
   const [currentRideId, setCurrentRideId] = useState<string | null>(null);
   const [rideStatus, setRideStatus] = useState<string | null>(null);
@@ -268,20 +269,19 @@ export default function MapDisplay({
   const injectLocationToMap = (lat: number, lon: number, forceFocus: boolean = false) => {
     if (!webviewRef.current) return;
     
-    // ✅ On n'utilise plus "followUser". 
-    // La caméra bouge UNIQUEMENT si forceFocus est "true" (clic sur le bouton GPS)
     const js = `
       (function() {
         if (typeof window.setUserLocation === 'function') {
           window.setUserLocation(${lat}, ${lon}, ${forceFocus});
         } else if (typeof map !== 'undefined') {
-          if (typeof markers !== 'undefined') {
-            if (markers.p) map.removeLayer(markers.p);
-            markers.p = L.marker([${lat}, ${lon}], {
-              icon: L.divIcon({ className: 'blue-dot', iconSize: [20, 20], iconAnchor: [10, 10] })
-            }).addTo(map);
+          if (markers.p) map.removeLayer(markers.p);
+          markers.p = L.marker([${lat}, ${lon}], {
+            icon: L.divIcon({ className: 'blue-dot', iconSize: [20, 20], iconAnchor: [10, 10] })
+          }).addTo(map);
+          // ✅ Verrou : On ne fait setView QUE si forceFocus est explicitement TRUE
+          if (${forceFocus} === true) {
+            map.setView([${lat}, ${lon}], 17);
           }
-          if (${forceFocus}) map.setView([${lat}, ${lon}], 17);
         }
       })();
       true;
@@ -290,26 +290,33 @@ export default function MapDisplay({
   };
   
   const getCurrentLocation = async (forceFocus = false) => {
-    try {
-      let { status } = await Location.requestForegroundPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert("GPS", "Veuillez autoriser la localisation précise.");
-        return;
-      }
-      
-      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
-      const currentPos = { lat: loc.coords.latitude, lon: loc.coords.longitude };
-      setPickupLocation(currentPos);
-      
-      injectLocationToMap(currentPos.lat, currentPos.lon, forceFocus || !hasCenteredInitially.current);
-
-      await Location.watchPositionAsync(
-        { accuracy: Location.Accuracy.High, distanceInterval: 5 },
+    try {
+      let { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert("GPS", "Veuillez autoriser la localisation précise.");
+        return;
+      }
+      
+      const loc = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.High });
+      const currentPos = { lat: loc.coords.latitude, lon: loc.coords.longitude };
+      
+      // ✅ CHANGEMENT : On ne met à jour pickupLocation QUE si c'est vide (premier lancement)
+      // Cela évite de rafraîchir l'écran inutilement plus tard.
+      if (!pickupLocation) {
+        setPickupLocation(currentPos);
+      }
+      
+      // ✅ On utilise forceFocus pour décider si on "tire" la caméra ou pas
+      injectLocationToMap(currentPos.lat, currentPos.lon, forceFocus || !hasCenteredInitially.current);
+      await Location.watchPositionAsync(
+        { accuracy: Location.Accuracy.High, distanceInterval: 10 }, 
         async (location) => {
           const { latitude, longitude } = location.coords;
-          const currentPos = { lat: latitude, lon: longitude };
 
-          // ✅ LOGIQUE PROXIMITÉ 500M (Phase 2)
+          // 🛡️ ACTION : On bouge le point bleu mais JAMAIS la caméra (false)
+          injectLocationToMap(latitude, longitude, false);
+
+          // ✅ LOGIQUE PROXIMITÉ 500M
           if (role === 'chauffeur' && rideStatus === 'in_progress' && !hasNotifiedProximity.current && selectedLocation) {
             const dToDest = calculateDistance(latitude, longitude, selectedLocation.lat, selectedLocation.lon) * 1000;
             if (dToDest < 500) {
@@ -319,46 +326,36 @@ export default function MapDisplay({
             }
           }
 
-          // ✅ LOGIQUE ARRIVÉE AU POINT DE RETRAIT
+          // ✅ LOGIQUE ARRIVÉE AU POINT DE RETRAIT (Detection à 50m)
           if (role === 'chauffeur' && rideStatus === 'accepted' && !hasNotifiedArrival.current && currentRideId) {
-              const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-              const { data: ride } = await supabase.from(table).select('pickup_lat, pickup_lon').eq('id', currentRideId).single();
-              if (ride) {
-                  const dist = calculateDistance(latitude, longitude, ride.pickup_lat, ride.pickup_lon) * 1000;
-                  if (dist < 50) {
-                      hasNotifiedArrival.current = true;
-                      setHasArrivedAtPickup(true);
-                      sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
-                      speak("Vous êtes arrivé au point de rendez-vous.");
-                      Vibration.vibrate(500);
-                  }
-              }
+             // On utilise la position du retrait stockée lors de la commande
+             const dist = calculateDistance(latitude, longitude, pickupLocation?.lat || 0, pickupLocation?.lon || 0) * 1000;
+             if (dist < 50) {
+                hasNotifiedArrival.current = true;
+                setHasArrivedAtPickup(true); // Ce State est nécessaire pour changer le bouton en "Débuter"
+                sendMessage("🏁 Je suis arrivé au point de rendez-vous !");
+                speak("Vous êtes arrivé au point de rendez-vous.");
+                Vibration.vibrate(500);
+             }
           }
 
+          // ✅ CALCUL DE DISTANCE (via Ref pour éviter le tremblement d'interface)
           if (rideStatus === 'in_progress' && lastLocForDistance.current) {
             const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
             setRealTraveledDistance(prev => prev + d);
           }
-
-          lastLocForDistance.current = currentPos;
-          setPickupLocation(currentPos);
-
-          // 🛡️ RÉVOLUTION : On met à jour le point bleu SANS bouger la caméra (forceFocus = false)
-          // Le seul moment où la caméra bouge, c'est si l'utilisateur appuie sur la Mire.
-          injectLocationToMap(latitude, longitude, false);
-
-          // On ne centre automatiquement qu'une seule fois au tout premier chargement
+          
+          lastLocForDistance.current = { lat: latitude, lon: longitude };
+          
           if (!hasCenteredInitially.current) {
-            injectLocationToMap(latitude, longitude, true);
             hasCenteredInitially.current = true;
           }
         }
       );
-    } catch (error) {
-      console.log("Erreur GPS:", error);
-    }
-  };
-
+    } catch (error) {
+      console.log("Erreur GPS:", error);
+    }
+  };
   
 
   useEffect(() => {
@@ -739,33 +736,28 @@ map.on('moveend', function() {
           javaScriptEnabled={true} 
           domStorageEnabled={true} 
           onLoadEnd={() => {
-            setTimeout(() => {
-              // ✅ On met à jour la position, mais on ne FORCE PLUS le centrage (false)
-              if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, false);
-            }, 500);
-          }}
+  // Supprime le setTimeout, on injecte juste la position initiale SANS bouger la caméra
+  if (pickupLocation) injectLocationToMap(pickupLocation.lat, pickupLocation.lon, false);
+}}
           onMessage={async (e) => {
             const data = JSON.parse(e.nativeEvent.data);
             
             // ✅ ACTION : Quand l'utilisateur touche et bouge la carte
-            if (data.type === 'move_start') {
-              setIsMoving(true);
-              setFollowUser(false); // On coupe le retour forcé vers le point bleu
-            }
-
+          
             if (data.type === 'map_move') {
               setIsMoving(false);
               const newPos = { lat: data.lat, lon: data.lon };
               
+              // 🛡️ Correction : On ne touche PAS à pickupLocation (qui est géré par le GPS)
+              // On met à jour uniquement les adresses textuelles
               if (searchMode === 'pickup') {
-                setPickupLocation(newPos);
                 setPickupAddress("Position sur la carte");
               } else {
                 setSelectedLocation(newPos);
                 setDestination("Position sur la carte");
               }
 
-              // ✅ RECALCUL DU TRAJET AUTOMATIQUE
+              // Recalcul automatique du trajet
               const start = searchMode === 'pickup' ? newPos : pickupLocation;
               const end = searchMode === 'destination' ? newPos : selectedLocation;
               if (start && end) await getRoute(start.lat, start.lon, end.lat, end.lon);
