@@ -808,32 +808,48 @@ map.on('moveend', function() {
                 </View>
                 <View style={styles.searchSeparator} />
                 <View style={styles.searchRow}>
-                  <Ionicons name="location" size={20} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} />
-                  <TextInput 
-                    style={[styles.input, searchMode === 'destination' && styles.activeInput]} 
-                    placeholder="Lieu de livraison" value={destination} onFocus={() => {setSearchMode('destination'); setSuggestions([]);}}
-                    onChangeText={async (t) => {
-                      setDestination(t);
-                      if (t.length > 2) {
-                        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.7,9.35,-5.55,9.55&limit=5`);
-                        const d = await res.json(); setSuggestions(d.features || []);
-                      } else { setSuggestions([]); }
-                    }} 
-                  />
-                </View>
+  <Ionicons name="location" size={20} color={activeService === 'delivery' ? "#f97316" : "#1e3a8a"} />
+  <TextInput 
+    style={[styles.input, searchMode === 'destination' && styles.activeInput]} 
+    // ✅ MODIFICATION ICI : Placeholder dynamique
+    placeholder={activeService === 'delivery' ? "Lieu de livraison" : "Où allez-vous ? (Taxi)"} 
+    value={destination} 
+    onFocus={() => {setSearchMode('destination'); setSuggestions([]);}}
+    onChangeText={async (t) => {
+      setDestination(t);
+      if (t.length > 2) {
+        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.7,9.35,-5.55,9.55&limit=5`);
+        const d = await res.json(); 
+        setSuggestions(d.features || []);
+      } else { 
+        // ✅ MODIFICATION ICI : On vide les suggestions si le texte est trop court ou effacé
+        setSuggestions([]); 
+      }
+    }} 
+  />
+</View>
               </View>
 
-              {suggestions.length > 0 && (
-                <View style={styles.suggestionsContainer}>
-                  <ScrollView keyboardShouldPersistTaps="handled">
-                    {suggestions.map((item, i) => (
-                      <TouchableOpacity key={i} style={styles.suggestionItem} onPress={() => handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name)}>
-                        <Ionicons name="location-outline" size={20} color="#64748b" /><Text style={styles.suggestionText}>{item.properties.name}</Text>
-                      </TouchableOpacity>
-                    ))}
-                  </ScrollView>
-                </View>
-              )}
+              {/* ✅ MODIFICATION : On ajoute une vérification sur la longueur du texte pour être sûr */}
+{suggestions.length > 0 && (destination.length > 0 || pickupAddress.length > 0) && (
+  <View style={styles.suggestionsContainer}>
+    <ScrollView keyboardShouldPersistTaps="handled">
+      {suggestions.map((item, i) => (
+        <TouchableOpacity 
+          key={i} 
+          style={styles.suggestionItem} 
+          onPress={() => {
+            handleLocationSelect(item.geometry.coordinates[1], item.geometry.coordinates[0], item.properties.name);
+            setSuggestions([]); // ✅ On vide après sélection
+          }}
+        >
+          <Ionicons name="location-outline" size={20} color="#64748b" />
+          <Text style={styles.suggestionText}>{item.properties.name}</Text>
+        </TouchableOpacity>
+      ))}
+    </ScrollView>
+  </View>
+)}
 
               {selectedLocation && pickupLocation && destination.length > 0 && suggestions.length === 0 && (
                 <TouchableOpacity 
