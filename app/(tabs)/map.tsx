@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useState, useMemo } from 'react';
 import { StyleSheet, View, StatusBar, ActivityIndicator } from 'react-native';
 import MapDisplay from '../../components/MapDisplay.native'; 
 import { supabase } from '../../lib/supabase';
@@ -59,6 +59,25 @@ export default function MapScreen() {
     }
   }
 
+  // ✅ SOLUTION RADICALE CONTRE LE TIRAGE DE CARTE :
+  // On mémorise l'affichage de la carte. Elle ne sera "détruite" et "rechargée" 
+  // que si le rôle ou l'adresse de destination changent. 
+  // Tant que tu navigues, fetchUserAndStatus ne fera plus sauter la carte.
+  const memoizedMap = useMemo(() => {
+    if (!role) return null;
+    return (
+      <MapDisplay 
+        userRole={role} 
+        userStatus={userStatus} 
+        initialDestination={params.address ? {
+          address: params.address as string,
+          lat: params.lat ? parseFloat(params.lat as string) : undefined,
+          lon: params.lon ? parseFloat(params.lon as string) : undefined
+        } : undefined} 
+      />
+    );
+  }, [role, userStatus, params.address, params.lat, params.lon]);
+
   if (loading) {
     return (
       <View style={styles.centered}>
@@ -72,15 +91,7 @@ export default function MapScreen() {
       <StatusBar translucent backgroundColor="transparent" barStyle="dark-content" />
       
       <View style={{ flex: 1 }}>
-        <MapDisplay 
-            userRole={role} 
-            userStatus={userStatus} // ✅ Transmis au composant natif
-            initialDestination={params.address ? {
-              address: params.address as string,
-              lat: params.lat ? parseFloat(params.lat as string) : undefined,
-              lon: params.lon ? parseFloat(params.lon as string) : undefined
-            } : undefined} 
-        />
+        {memoizedMap}
       </View>
     </View>
   );

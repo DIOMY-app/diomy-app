@@ -587,7 +587,7 @@ setCanDoTaxi(prof?.can_do_taxi ?? false); // On stocke la permission
         if (cond) setIsOnline(cond.is_online);
         Speech.speak("", { language: 'fr' });
         setIsMapReady(true);
-        setTimeout(() => getCurrentLocation(true), 1500);
+        setTimeout(() => getCurrentLocation(false), 1500);
       } catch (error) { console.error(error); }
     };
     init();
