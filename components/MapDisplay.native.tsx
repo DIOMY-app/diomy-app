@@ -705,10 +705,7 @@ setCanDoTaxi(prof?.can_do_taxi ?? false); // On stocke la permission
         if (focus) map.setView([lat, lon], 17);
     };
 
-    map.on('click',function(e){
-        window.ReactNativeWebView.postMessage(JSON.stringify({type:'map_click',lat:e.latlng.lat,lon:e.latlng.lng}));
-    });
-
+    
     map.on('movestart', function() {
     window.ReactNativeWebView.postMessage(JSON.stringify({type:'move_start'}));
 });
@@ -751,9 +748,7 @@ map.on('moveend', function() {
               // La carte restera là où l'utilisateur l'a posée.
             }
 
-            if (data.type === 'map_click') {
-               handleLocationSelect(data.lat, data.lon, "Point sélectionné");
-            }
+            
           }}
         />
       </View>
