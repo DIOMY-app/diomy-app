@@ -746,21 +746,9 @@ map.on('moveend', function() {
           
             if (data.type === 'map_move') {
               setIsMoving(false);
-              const newPos = { lat: data.lat, lon: data.lon };
-              
-              // 🛡️ Correction : On ne touche PAS à pickupLocation (qui est géré par le GPS)
-              // On met à jour uniquement les adresses textuelles
-              if (searchMode === 'pickup') {
-                setPickupAddress("Position sur la carte");
-              } else {
-                setSelectedLocation(newPos);
-                setDestination("Position sur la carte");
-              }
-
-              // Recalcul automatique du trajet
-              const start = searchMode === 'pickup' ? newPos : pickupLocation;
-              const end = searchMode === 'destination' ? newPos : selectedLocation;
-              if (start && end) await getRoute(start.lat, start.lon, end.lat, end.lon);
+              // ✅ On a supprimé toute la logique de mise à jour d'adresse ici.
+              // Désormais, bouger la carte ne déclenchera plus aucun re-render React.
+              // La carte restera là où l'utilisateur l'a posée.
             }
 
             if (data.type === 'map_click') {
@@ -770,19 +758,7 @@ map.on('moveend', function() {
         />
       </View>
 
-      {/* ✅ CURSEUR CENTRAL DE PRÉCISION (Rétabli et Simplifié) */}
-      {!rideStatus && (
-        <View style={styles.centerPinContainer} pointerEvents="none">
-          <Ionicons 
-            name="location" 
-            size={42} 
-            color={searchMode === 'pickup' ? "#22c55e" : (activeService === 'delivery' ? "#f97316" : "#1e3a8a")} 
-          />
-          {/* Ombre au sol pour viser la rue précisément */}
-          <View style={{ width: 6, height: 6, borderRadius: 3, backgroundColor: 'rgba(0,0,0,0.3)', marginTop: -5 }} />
-        </View>
-      )}
-
+     
       {/* ✅ MÉMOIRE CODE PIN (Badge permanent) */}
       {deliveryPin && (rideStatus === 'pending' || rideStatus === 'accepted' || rideStatus === 'in_progress') && (
         <View style={styles.pinReminder}>

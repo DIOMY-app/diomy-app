@@ -11,7 +11,7 @@ export default function MapScreen() {
   const router = useRouter();
   const params = useLocalSearchParams();
 
-  // ✅ Utilisation de useFocusEffect pour rafraîchir le statut à chaque fois que l'écran est vu
+  // ✅ Rafraîchit le profil sans détruire la carte
   useFocusEffect(
     useCallback(() => {
       fetchUserAndStatus();
@@ -26,7 +26,6 @@ export default function MapScreen() {
         return;
       }
 
-      // ✅ RÉGLE : Lecture directe de la colonne status dans profiles
       const { data: profile } = await supabase
         .from('profiles')
         .select('role, status')
@@ -36,12 +35,13 @@ export default function MapScreen() {
       if (profile) {
         const roleClean = (profile.role || "").toLowerCase().trim();
         const statusClean = (profile.status || "").toLowerCase().trim();
+        
+        // Mise à jour des états
         setUserStatus(statusClean);
 
         const isDriver = ['chauffeur', 'conducteur', 'conducteurs'].includes(roleClean);
 
         if (isDriver) {
-          // On autorise l'accès à la carte si 'valide', 'validated' ou 'en_attente_validation'
           if (statusClean === 'valide' || statusClean === 'validated' || statusClean === 'en_attente_validation') {
             setRole('chauffeur');
           } else {
@@ -59,10 +59,9 @@ export default function MapScreen() {
     }
   }
 
-  // ✅ SOLUTION RADICALE CONTRE LE TIRAGE DE CARTE :
-  // On mémorise l'affichage de la carte. Elle ne sera "détruite" et "rechargée" 
-  // que si le rôle ou l'adresse de destination changent. 
-  // Tant que tu navigues, fetchUserAndStatus ne fera plus sauter la carte.
+  // ✅ VERROU ANTI-TIRAGE : useMemo est la clé.
+  // MapDisplay ne sera RECHARGÉ que si le role change fondamentalement.
+  // fetchUserAndStatus peut changer le status (valide -> invalide), cela ne fera pas bouger la carte.
   const memoizedMap = useMemo(() => {
     if (!role) return null;
     return (
@@ -76,7 +75,9 @@ export default function MapScreen() {
         } : undefined} 
       />
     );
-  }, [role, userStatus, params.address, params.lat, params.lon]);
+  // 🛡️ On ne met que "role" et l'id de la destination en dépendance. 
+  // Même si status change, le composant enfant ne redémarre pas (pas de saut).
+  }, [role, params.address]);
 
   if (loading) {
     return (
