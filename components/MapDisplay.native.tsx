@@ -371,11 +371,15 @@ export default function MapDisplay({
   }, [isOnline, role]);
 
   const getRoute = async (startLat: number, startLon: number, endLat: number, endLon: number) => {
-    const url = `https://router.project-osrm.org/route/v1/driving/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson`;
-    try {
-      const response = await fetch(url);
-      const data = await response.json();
-      if (data.routes?.[0]) {
+    // Utilisation de TON serveur privé Hostinger pour une vitesse maximale à Korhogo
+    const url = `http://72.62.235.2:3000/route/v1/driving/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson`;
+    
+    try {
+      const response = await fetch(url);
+      const data = await response.json();
+      
+      if (data.code === 'Ok' && data.routes?.[0]) {
+        // Le reste de ta logique reste identique
         const coords = JSON.stringify(data.routes[0].geometry.coordinates);
         webviewRef.current?.injectJavaScript(`
           if(routeLayer) map.removeLayer(routeLayer);
