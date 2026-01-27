@@ -4,11 +4,13 @@ import { getUserByOpenId, upsertUser } from "../db";
 import { getSessionCookieOptions } from "./cookies";
 import { sdk } from "./sdk";
 
+// Helper pour les paramètres de requête
 function getQueryParam(req: Request, key: string): string | undefined {
   const value = req.query[key];
   return typeof value === "string" ? value : undefined;
 }
 
+// Synchronisation de l'utilisateur
 async function syncUser(userInfo: {
   openId?: string | null;
   name?: string | null;
@@ -40,19 +42,10 @@ async function syncUser(userInfo: {
   );
 }
 
-function buildUserResponse(
-  user:
-    | Awaited<ReturnType<typeof getUserByOpenId>>
-    | {
-        openId: string;
-        name?: string | null;
-        email?: string | null;
-        loginMethod?: string | null;
-        lastSignedIn?: Date | null;
-      },
-) {
+// Formate la réponse utilisateur
+function buildUserResponse(user: any) {
   return {
-    id: (user as any)?.id ?? null,
+    id: user?.id ?? null,
     openId: user?.openId ?? null,
     name: user?.name ?? null,
     email: user?.email ?? null,
@@ -62,6 +55,36 @@ function buildUserResponse(
 }
 
 export function registerOAuthRoutes(app: Express) {
+  
+  // ==========================================
+  // 🛰️ ROUTE GPS : LE PONT OSRM (PORT 3000 -> 5000)
+  // ==========================================
+  app.get("/api/route", async (req: Request, res: Response) => {
+    const { start, end } = req.query;
+
+    if (!start || !end) {
+      return res.status(400).json({ error: "Points de départ ou d'arrivée manquants" });
+    }
+
+    try {
+      // On interroge OSRM en interne sur le VPS
+      const osrmUrl = `http://127.0.0.1:5000/route/v1/driving/${start};${end}?overview=full&geometries=geojson`;
+      
+      const response = await fetch(osrmUrl);
+      const data = await response.json();
+
+      // Renvoie les données (distance, durée, géométrie) à l'application
+      res.json(data);
+    } catch (error) {
+      console.error("[GPS-BRIDGE] Erreur OSRM:", error);
+      res.status(500).json({ error: "Erreur lors du calcul de l'itinéraire" });
+    }
+  });
+
+  // ==========================================
+  // 🔐 ROUTES AUTHENTIFICATION (OAUTH)
+  // ==========================================
+
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
@@ -83,12 +106,7 @@ export function registerOAuthRoutes(app: Express) {
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, sessionToken, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
-      // Redirect to the frontend URL (Expo web on port 8081)
-      // Cookie is set with parent domain so it works across both 3000 and 8081 subdomains
-      const frontendUrl =
-        process.env.EXPO_WEB_PREVIEW_URL ||
-        process.env.EXPO_PACKAGER_PROXY_URL ||
-        "http://localhost:8081";
+      const frontendUrl = process.env.EXPO_WEB_PREVIEW_URL || "http://localhost:8081";
       res.redirect(302, frontendUrl);
     } catch (error) {
       console.error("[OAuth] Callback failed", error);
@@ -109,7 +127,6 @@ export function registerOAuthRoutes(app: Express) {
       const tokenResponse = await sdk.exchangeCodeForToken(code, state);
       const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
       const user = await syncUser(userInfo);
-
       const sessionToken = await sdk.createSessionToken(userInfo.openId!, {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
@@ -134,40 +151,26 @@ export function registerOAuthRoutes(app: Express) {
     res.json({ success: true });
   });
 
-  // Get current authenticated user - works with both cookie (web) and Bearer token (mobile)
   app.get("/api/auth/me", async (req: Request, res: Response) => {
     try {
       const user = await sdk.authenticateRequest(req);
       res.json({ user: buildUserResponse(user) });
     } catch (error) {
-      console.error("[Auth] /api/auth/me failed:", error);
       res.status(401).json({ error: "Not authenticated", user: null });
     }
   });
 
-  // Establish session cookie from Bearer token
-  // Used by iframe preview: frontend receives token via postMessage, then calls this endpoint
-  // to get a proper Set-Cookie response from the backend (3000-xxx domain)
   app.post("/api/auth/session", async (req: Request, res: Response) => {
     try {
-      // Authenticate using Bearer token from Authorization header
       const user = await sdk.authenticateRequest(req);
+      const authHeader = req.headers.authorization || "";
+      const token = authHeader.replace("Bearer ", "").trim();
 
-      // Get the token from the Authorization header to set as cookie
-      const authHeader = req.headers.authorization || req.headers.Authorization;
-      if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
-        res.status(400).json({ error: "Bearer token required" });
-        return;
-      }
-      const token = authHeader.slice("Bearer ".length).trim();
-
-      // Set cookie for this domain (3000-xxx)
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
 
       res.json({ success: true, user: buildUserResponse(user) });
     } catch (error) {
-      console.error("[Auth] /api/auth/session failed:", error);
       res.status(401).json({ error: "Invalid token" });
     }
   });
