@@ -371,27 +371,26 @@ export default function MapDisplay({
   }, [isOnline, role]);
 
   const getRoute = async (startLat: number, startLon: number, endLat: number, endLon: number) => {
-    // Utilisation de TON serveur privé Hostinger pour une vitesse maximale à Korhogo
-    const url = `http://72.62.235.2:3000/route/v1/driving/${startLon},${startLat};${endLon},${endLat}?overview=full&geometries=geojson`;
+    // ✅ CORRECTION : Utilisation de la route API qu'on a créée sur le port 3000
+    const url = `http://72.62.235.2:3000/api/route?start=${startLon},${startLat}&end=${endLon},${endLat}`;
     
     try {
       const response = await fetch(url);
       const data = await response.json();
       
       if (data.code === 'Ok' && data.routes?.[0]) {
-        // Le reste de ta logique reste identique
-        const coords = JSON.stringify(data.routes[0].geometry.coordinates);
-        webviewRef.current?.injectJavaScript(`
-          if(routeLayer) map.removeLayer(routeLayer);
-          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color: '${activeService === 'delivery' ? '#f97316' : '#2563eb'}', weight:6, opacity:0.8}).addTo(map);
-          map.fitBounds(routeLayer.getBounds().pad(0.3));
-          true;
-        `);
-        return data.routes[0];
-      }
-    } catch (e) { console.error('Erreur OSRM:', e); }
-    return null;
-  };
+        const coords = JSON.stringify(data.routes[0].geometry.coordinates);
+        webviewRef.current?.injectJavaScript(`
+          if(routeLayer) map.removeLayer(routeLayer);
+          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color: '${activeService === 'delivery' ? '#f97316' : '#2563eb'}', weight:6, opacity:0.8}).addTo(map);
+          map.fitBounds(routeLayer.getBounds().pad(0.3));
+          true;
+        `);
+        return data.routes[0];
+      }
+    } catch (e) { console.error('Erreur OSRM via Backend:', e); }
+    return null;
+  };
 
   const updateDriverNavigation = async (status: string, rideId: string) => {
     const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
