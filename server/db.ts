@@ -90,4 +90,8 @@ export async function getUserByOpenId(openId: string) {
   const result = await db.select().from(users).where(eq(users.openId, openId)).limit(1);
 
   return result.length > 0 ? result[0] : undefined;
+<<<<<<< HEAD
 }
+=======
+}
+>>>>>>> d6c93cd3767bea13cf5166f2186d3c485c5f0239

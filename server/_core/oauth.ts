@@ -62,6 +62,35 @@ function buildUserResponse(
 }
 
 export function registerOAuthRoutes(app: Express) {
+
+  // ==========================================
+  // 🛰️ AJOUT : ROUTE PONT GPS OSRM
+  // ==========================================
+  app.get("/api/route", async (req: Request, res: Response) => {
+    const { start, end } = req.query;
+
+    if (!start || !end) {
+      return res.status(400).json({ error: "Points de départ ou d'arrivée manquants" });
+    }
+
+    try {
+      // On interroge OSRM en interne sur le VPS (Port 5000)
+      const osrmUrl = `http://127.0.0.1:5000/route/v1/driving/${start};${end}?overview=full&geometries=geojson`;
+      
+      const response = await fetch(osrmUrl);
+      const data = await response.json();
+
+      // On renvoie les données à l'application mobile
+      res.json(data);
+    } catch (error) {
+      console.error("[GPS-BRIDGE] Erreur OSRM:", error);
+      res.status(500).json({ error: "Erreur lors du calcul de l'itinéraire" });
+    }
+  });
+
+  // ==========================================
+  // 🔐 TES ROUTES INITIALES (OAUTH)
+  // ==========================================
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
@@ -151,6 +180,10 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
       const token = authHeader.slice("Bearer ".length).trim();
+<<<<<<< HEAD
+=======
+
+>>>>>>> d6c93cd3767bea13cf5166f2186d3c485c5f0239
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       res.json({ success: true, user: buildUserResponse(user) });
@@ -159,6 +192,7 @@ export function registerOAuthRoutes(app: Express) {
       res.status(401).json({ error: "Invalid token" });
     }
   });
+<<<<<<< HEAD
 
   // --- NOUVELLE ROUTE GPS DIOMY ---
   app.get("/api/route", async (req: Request, res: Response) => {
@@ -172,3 +206,6 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 }
+=======
+}
+>>>>>>> d6c93cd3767bea13cf5166f2186d3c485c5f0239
