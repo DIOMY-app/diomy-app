@@ -5,10 +5,14 @@
       "runtime": "node@20.x"
     }
   },
-  "routes": [
+  "rewrites": [
     {
-      "src": "/api/(.*)",
-      "dest": "_core/index.ts"
+      "source": "/api/health",
+      "destination": "/_core/index.ts"
+    },
+    {
+      "source": "/api/trpc/(.*)",
+      "destination": "/_core/index.ts"
     }
   ]
 }
