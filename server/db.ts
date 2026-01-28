@@ -5,7 +5,6 @@ import { ENV } from "./_core/env";
 
 let _db: ReturnType<typeof drizzle> | null = null;
 
-// Lazily create the drizzle instance so local tooling can run without a DB.
 export async function getDb() {
   if (!_db && process.env.DATABASE_URL) {
     try {
@@ -30,10 +29,12 @@ export async function upsertUser(user: InsertUser): Promise<void> {
   }
 
   try {
-    const values: InsertUser = {
+    // ✅ Correction : On utilise "as any" temporairement pour l'objet de construction 
+    // afin d'éviter les erreurs d'indexation dynamique pendant le build.
+    const values: any = {
       openId: user.openId,
     };
-    const updateSet: Record<string, unknown> = {};
+    const updateSet: Record<string, any> = {};
 
     const textFields = ["name", "email", "loginMethod"] as const;
     type TextField = (typeof textFields)[number];
@@ -52,6 +53,7 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       values.lastSignedIn = user.lastSignedIn;
       updateSet.lastSignedIn = user.lastSignedIn;
     }
+    
     if (user.role !== undefined) {
       values.role = user.role;
       updateSet.role = user.role;
@@ -68,7 +70,8 @@ export async function upsertUser(user: InsertUser): Promise<void> {
       updateSet.lastSignedIn = new Date();
     }
 
-    await db.insert(users).values(values).onDuplicateKeyUpdate({
+    // ✅ On repasse l'objet final en InsertUser pour Drizzle
+    await db.insert(users).values(values as InsertUser).onDuplicateKeyUpdate({
       set: updateSet,
     });
   } catch (error) {
@@ -88,5 +91,3 @@ export async function getUserByOpenId(openId: string) {
 
   return result.length > 0 ? result[0] : undefined;
 }
-
-// TODO: add feature queries here as your schema grows.
