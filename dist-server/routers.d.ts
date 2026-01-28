@@ -1,11 +1,11 @@
 export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
-    ctx: import("./_core/context.js").TrpcContext;
+    ctx: import("./api/context.js").TrpcContext;
     meta: object;
     errorShape: import("@trpc/server").TRPCDefaultErrorShape;
     transformer: true;
 }, import("@trpc/server").TRPCDecorateCreateRouterOptions<{
     system: import("@trpc/server").TRPCBuiltRouter<{
-        ctx: import("./_core/context.js").TrpcContext;
+        ctx: import("./api/context.js").TrpcContext;
         meta: object;
         errorShape: import("@trpc/server").TRPCDefaultErrorShape;
         transformer: true;
@@ -31,7 +31,7 @@ export declare const appRouter: import("@trpc/server").TRPCBuiltRouter<{
         }>;
     }>>;
     auth: import("@trpc/server").TRPCBuiltRouter<{
-        ctx: import("./_core/context.js").TrpcContext;
+        ctx: import("./api/context.js").TrpcContext;
         meta: object;
         errorShape: import("@trpc/server").TRPCDefaultErrorShape;
         transformer: true;

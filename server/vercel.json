@@ -1,18 +1,11 @@
 {
   "version": 2,
   "functions": {
-    "_core/index.ts": {
-      "runtime": "node@20.x"
+    "api/index.ts": {
+      "runtime": "@vercel/node"
     }
   },
   "rewrites": [
-    {
-      "source": "/api/health",
-      "destination": "/_core/index.ts"
-    },
-    {
-      "source": "/api/trpc/(.*)",
-      "destination": "/_core/index.ts"
-    }
+    { "source": "/api/(.*)", "destination": "/api/index.ts" }
   ]
 }
