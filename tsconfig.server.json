@@ -1,0 +1,28 @@
+{
+  "compilerOptions": {
+    "outDir": "./dist-server",
+    "baseUrl": ".", 
+    "target": "ES2020",
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "resolveJsonModule": true,
+    "allowJs": true,
+    "strict": false,
+    "noImplicitAny": false,
+    "paths": {
+      "@core/*": ["server/_core/*"],
+      "@shared/*": ["shared/*"]
+    }
+  },
+  "include": [
+    "server/**/*",
+    "shared/**/*",
+    "drizzle/**/*"
+  ],
+  "exclude": [
+    "node_modules",
+    "dist"
+  ]
+}
