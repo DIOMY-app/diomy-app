@@ -180,10 +180,8 @@ export function registerOAuthRoutes(app: Express) {
         return;
       }
       const token = authHeader.slice("Bearer ".length).trim();
-<<<<<<< HEAD
-=======
 
->>>>>>> d6c93cd3767bea13cf5166f2186d3c485c5f0239
+
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
       res.json({ success: true, user: buildUserResponse(user) });
@@ -192,7 +190,6 @@ export function registerOAuthRoutes(app: Express) {
       res.status(401).json({ error: "Invalid token" });
     }
   });
-<<<<<<< HEAD
 
   // --- NOUVELLE ROUTE GPS DIOMY ---
   app.get("/api/route", async (req: Request, res: Response) => {
@@ -206,6 +203,4 @@ export function registerOAuthRoutes(app: Express) {
     }
   });
 }
-=======
-}
->>>>>>> d6c93cd3767bea13cf5166f2186d3c485c5f0239
+
