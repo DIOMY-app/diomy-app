@@ -30,7 +30,7 @@ async function startServer() {
   const app = express();
   const server = createServer(app);
 
-  // Enable CORS for all routes - reflect the request origin to support credentials
+  // --- CONFIGURATION DES MIDDLEWARES ---
   app.use((req, res, next) => {
     const origin = req.headers.origin;
     if (origin) {
@@ -43,7 +43,6 @@ async function startServer() {
     );
     res.header("Access-Control-Allow-Credentials", "true");
 
-    // Handle preflight requests
     if (req.method === "OPTIONS") {
       res.sendStatus(200);
       return;
@@ -54,10 +53,11 @@ async function startServer() {
   app.use(express.json({ limit: "50mb" }));
   app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
+  // --- ROUTES ---
   registerOAuthRoutes(app);
 
   app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, timestamp: Date.now() });
+    res.json({ ok: true, timestamp: Date.now(), env: process.env.NODE_ENV });
   });
 
   app.use(
@@ -68,16 +68,26 @@ async function startServer() {
     }),
   );
 
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  const port = await findAvailablePort(preferredPort);
-
-  if (port !== preferredPort) {
-    console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+  // --- LOGIQUE D'EXPORTATION ---
+  if (process.env.VERCEL) {
+    return app;
   }
 
-  server.listen(port, () => {
-    console.log(`[api] server listening on port ${port}`);
-  });
+  const preferredPort = parseInt(process.env.PORT || "3000");
+  try {
+    const port = await findAvailablePort(preferredPort);
+    if (port !== preferredPort) {
+      console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
+    }
+    server.listen(port, () => {
+      console.log(`[api] server listening on port ${port}`);
+    });
+  } catch (err) {
+    console.error("Failed to start local server:", err);
+  }
+
+  return app;
 }
 
-startServer().catch(console.error);
+// L'exportation finale qui manquait ou était mal placée
+export default startServer();
