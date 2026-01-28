@@ -373,7 +373,8 @@ export default function MapDisplay({
   const getRoute = async (startLat: number, startLon: number, endLat: number, endLon: number) => {
     // ✅ Utilisation du port 3000 (puisque Nginx ne répond pas encore)
     // ✅ Vérifie bien que ton backend accepte cette structure d'URL
-    const url = `http://72.62.235.2:3000/api/route?start=${startLon},${startLat}&end=${endLon},${endLat}`;
+   // REMPLACE l'ancienne IP par ton nouveau lien Vercel
+const url = `https://diomy-app.vercel.app/api/route?start=${startLon},${startLat}&end=${endLon},${endLat}`;
     
     console.log("Appel API Route:", url); // Pour debugger dans ton terminal VS Code
 
