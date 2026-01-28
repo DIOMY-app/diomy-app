@@ -371,26 +371,51 @@ export default function MapDisplay({
   }, [isOnline, role]);
 
   const getRoute = async (startLat: number, startLon: number, endLat: number, endLon: number) => {
-    // ✅ CORRECTION : Utilisation de la route API qu'on a créée sur le port 3000
+    // ✅ Utilisation du port 3000 (puisque Nginx ne répond pas encore)
+    // ✅ Vérifie bien que ton backend accepte cette structure d'URL
     const url = `http://72.62.235.2:3000/api/route?start=${startLon},${startLat}&end=${endLon},${endLat}`;
     
+    console.log("Appel API Route:", url); // Pour debugger dans ton terminal VS Code
+
     try {
-      const response = await fetch(url);
+      const response = await fetch(url, {
+        method: 'GET',
+        headers: {
+          'Accept': 'application/json',
+          'Content-Type': 'application/json',
+        },
+      });
+
+      if (!response.ok) {
+        console.error("Erreur Serveur:", response.status);
+        return null;
+      }
+
       const data = await response.json();
       
-      if (data.code === 'Ok' && data.routes?.[0]) {
+      // ✅ Adaptation selon la réponse de ton backend
+      // Si ton backend renvoie directement l'objet OSRM :
+      if (data && data.routes && data.routes[0]) {
         const coords = JSON.stringify(data.routes[0].geometry.coordinates);
         webviewRef.current?.injectJavaScript(`
-          if(routeLayer) map.removeLayer(routeLayer);
-          routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {color: '${activeService === 'delivery' ? '#f97316' : '#2563eb'}', weight:6, opacity:0.8}).addTo(map);
-          map.fitBounds(routeLayer.getBounds().pad(0.3));
+          if(window.routeLayer) map.removeLayer(window.routeLayer);
+          window.routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {
+            color: '${activeService === 'delivery' ? '#f97316' : '#2563eb'}', 
+            weight: 6, 
+            opacity: 0.8
+          }).addTo(map);
+          map.fitBounds(window.routeLayer.getBounds().pad(0.3));
           true;
         `);
         return data.routes[0];
       }
-    } catch (e) { console.error('Erreur OSRM via Backend:', e); }
+    } catch (e) { 
+      console.error('Erreur Fetch Backend:', e); 
+      // Si le fetch échoue, c'est que l'IP ou le port est bloqué
+      Alert.alert("Erreur Réseau", "Impossible de contacter le serveur de calcul.");
+    }
     return null;
-  };
+};
 
   const updateDriverNavigation = async (status: string, rideId: string) => {
     const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
