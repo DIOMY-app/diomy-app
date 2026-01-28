@@ -1,16 +1,6 @@
 {
   "version": 2,
-  "name": "diomy-app",
-  "builds": [
-    {
-      "src": "_core/index.ts",
-      "use": "@vercel/node"
-    }
-  ],
-  "routes": [
-    {
-      "src": "/api/(.*)",
-      "dest": "_core/index.ts"
-    }
+  "rewrites": [
+    { "source": "/api/(.*)", "destination": "/_core/index.ts" }
   ]
 }
