@@ -1,5 +1,9 @@
 {
-  "engines": { "node": "20.x" },
+  "name": "diomy-backend",
+  "version": "1.0.0",
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
     "express": "^4.18.2",
     "dotenv": "^16.3.1",
