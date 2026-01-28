@@ -1,9 +1,8 @@
 {
   "version": 2,
-  "name": "diomy-app",
   "functions": {
     "_core/index.ts": {
-      "runtime": "@vercel/node"
+      "runtime": "node@20.x"
     }
   },
   "routes": [
