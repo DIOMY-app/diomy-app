@@ -1,93 +1,43 @@
 import "dotenv/config";
 import express from "express";
-import { createServer } from "http";
-import net from "net";
 import { createExpressMiddleware } from "@trpc/server/adapters/express";
 import { registerOAuthRoutes } from "./oauth";
 import { appRouter } from "../routers";
 import { createContext } from "./context";
 
-function isPortAvailable(port: number): Promise<boolean> {
-  return new Promise((resolve) => {
-    const server = net.createServer();
-    server.listen(port, () => {
-      server.close(() => resolve(true));
-    });
-    server.on("error", () => resolve(false));
-  });
-}
+const app = express();
 
-async function findAvailablePort(startPort: number = 3000): Promise<number> {
-  for (let port = startPort; port < startPort + 20; port++) {
-    if (await isPortAvailable(port)) {
-      return port;
-    }
+// --- MIDDLEWARES ---
+app.use((req, res, next) => {
+  const origin = req.headers.origin;
+  if (origin) res.header("Access-Control-Allow-Origin", origin);
+  res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
+  res.header("Access-Control-Allow-Headers", "Origin, X-Requested-With, Content-Type, Accept, Authorization");
+  res.header("Access-Control-Allow-Credentials", "true");
+
+  if (req.method === "OPTIONS") {
+    return res.sendStatus(200);
   }
-  throw new Error(`No available port found starting from ${startPort}`);
-}
+  next();
+});
 
-async function startServer() {
-  const app = express();
-  const server = createServer(app);
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
-  // --- CONFIGURATION DES MIDDLEWARES ---
-  app.use((req, res, next) => {
-    const origin = req.headers.origin;
-    if (origin) {
-      res.header("Access-Control-Allow-Origin", origin);
-    }
-    res.header("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS");
-    res.header(
-      "Access-Control-Allow-Headers",
-      "Origin, X-Requested-With, Content-Type, Accept, Authorization",
-    );
-    res.header("Access-Control-Allow-Credentials", "true");
+// --- ROUTES ---
+registerOAuthRoutes(app);
 
-    if (req.method === "OPTIONS") {
-      res.sendStatus(200);
-      return;
-    }
-    next();
-  });
+app.get("/api/health", (_req, res) => {
+  res.json({ ok: true, deployment: "Vercel", timestamp: Date.now() });
+});
 
-  app.use(express.json({ limit: "50mb" }));
-  app.use(express.urlencoded({ limit: "50mb", extended: true }));
+app.use(
+  "/api/trpc",
+  createExpressMiddleware({
+    router: appRouter,
+    createContext,
+  }),
+);
 
-  // --- ROUTES ---
-  registerOAuthRoutes(app);
-
-  app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, timestamp: Date.now(), env: process.env.NODE_ENV });
-  });
-
-  app.use(
-    "/api/trpc",
-    createExpressMiddleware({
-      router: appRouter,
-      createContext,
-    }),
-  );
-
-  // --- LOGIQUE D'EXPORTATION ---
-  if (process.env.VERCEL) {
-    return app;
-  }
-
-  const preferredPort = parseInt(process.env.PORT || "3000");
-  try {
-    const port = await findAvailablePort(preferredPort);
-    if (port !== preferredPort) {
-      console.log(`Port ${preferredPort} is busy, using port ${port} instead`);
-    }
-    server.listen(port, () => {
-      console.log(`[api] server listening on port ${port}`);
-    });
-  } catch (err) {
-    console.error("Failed to start local server:", err);
-  }
-
-  return app;
-}
-
-// L'exportation finale qui manquait ou était mal placée
-export default startServer();
+// --- EXPORT POUR VERCEL ---
+export default app;
