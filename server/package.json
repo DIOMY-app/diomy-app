@@ -1,13 +1,17 @@
 {
   "name": "diomy-backend",
   "version": "1.0.0",
-  "engines": {
-    "node": "20.x"
-  },
+  "main": "server/api/index.ts",
   "dependencies": {
+    "drizzle-orm": "^0.29.3",
+    "postgres": "^3.4.3",
     "express": "^4.18.2",
-    "dotenv": "^16.3.1",
-    "@trpc/server": "^10.38.0",
-    "@vercel/node": "latest"
+    "dotenv": "^16.4.1",
+    "cors": "^2.8.5",
+    "@trpc/server": "^10.38.0"
+  },
+  "devDependencies": {
+    "@vercel/node": "latest",
+    "typescript": "latest"
   }
 }
