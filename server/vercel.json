@@ -1,9 +1,10 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "api/index.js", "use": "@vercel/node" }
-  ],
+  "public": false,
+  "cleanUrls": true,
   "rewrites": [
-    { "source": "/(.*)", "destination": "api/index.js" }
+    { "source": "/api/ping", "destination": "api/index.js" },
+    { "source": "/api/route", "destination": "api/index.js" },
+    { "source": "/ping", "destination": "api/index.js" }
   ]
 }
