@@ -1,5 +1,7 @@
 {
   "version": 2,
+  "installCommand": "npm install --force",
+  "buildCommand": "exit 0",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "api/index.ts" }
   ]
