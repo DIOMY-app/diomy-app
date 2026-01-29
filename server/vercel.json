@@ -1,9 +1,13 @@
 {
   "version": 2,
   "builds": [
-    { "src": "api/main.js", "use": "@vercel/node" }
+    {
+      "src": "api/main.js",
+      "use": "@vercel/node"
+    }
   ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "api/main.js" }
+    { "source": "/api/(.*)", "destination": "api/main.js" },
+    { "source": "/ping", "destination": "api/main.js" }
   ]
 }
