@@ -1,11 +1,24 @@
 {
   "version": 2,
-  "rewrites": [
-    { "source": "/api/(.*)", "destination": "server/api/index.ts" }
-  ],
-  "functions": {
-    "server/api/index.ts": {
-      "runtime": "node@20.x"
+  "name": "diomy-app",
+  "builds": [
+    {
+      "src": "api/index.js",
+      "use": "@vercel/node"
     }
-  }
+  ],
+  "routes": [
+    {
+      "src": "/api/ping",
+      "dest": "api/index.js"
+    },
+    {
+      "src": "/api/route",
+      "dest": "api/index.js"
+    },
+    {
+      "src": "/api/(.*)",
+      "dest": "api/index.js"
+    }
+  ]
 }
