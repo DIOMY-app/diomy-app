@@ -371,12 +371,10 @@ export default function MapDisplay({
   }, [isOnline, role]);
 
   const getRoute = async (startLat: number, startLon: number, endLat: number, endLon: number) => {
-    // ✅ Utilisation du port 3000 (puisque Nginx ne répond pas encore)
-    // ✅ Vérifie bien que ton backend accepte cette structure d'URL
-   // REMPLACE l'ancienne IP par ton nouveau lien Vercel
-const url = `https://diomy-app.vercel.app/api/route?start=${startLon},${startLat}&end=${endLon},${endLat}`;
+    // ✅ Utilisation du nouveau lien Vercel Bundlé
+    const url = `https://final-deploy-bice.vercel.app/api/route?start=${startLon},${startLat}&end=${endLon},${endLat}`;
     
-    console.log("Appel API Route:", url); // Pour debugger dans ton terminal VS Code
+    console.log("Appel API Route:", url);
 
     try {
       const response = await fetch(url, {
@@ -388,16 +386,18 @@ const url = `https://diomy-app.vercel.app/api/route?start=${startLon},${startLat
       });
 
       if (!response.ok) {
-        console.error("Erreur Serveur:", response.status);
+        const errorText = await response.text();
+        console.error("Erreur Serveur Vercel:", response.status, errorText);
         return null;
       }
 
       const data = await response.json();
       
-      // ✅ Adaptation selon la réponse de ton backend
-      // Si ton backend renvoie directement l'objet OSRM :
+      // ✅ On vérifie si les données de distance et de géométrie existent
       if (data && data.routes && data.routes[0]) {
-        const coords = JSON.stringify(data.routes[0].geometry.coordinates);
+        const route = data.routes[0];
+        const coords = JSON.stringify(route.geometry.coordinates);
+        
         webviewRef.current?.injectJavaScript(`
           if(window.routeLayer) map.removeLayer(window.routeLayer);
           window.routeLayer = L.polyline(${coords}.map(c=>[c[1],c[0]]), {
@@ -408,12 +408,11 @@ const url = `https://diomy-app.vercel.app/api/route?start=${startLon},${startLat
           map.fitBounds(window.routeLayer.getBounds().pad(0.3));
           true;
         `);
-        return data.routes[0];
+        return route;
       }
     } catch (e) { 
-      console.error('Erreur Fetch Backend:', e); 
-      // Si le fetch échoue, c'est que l'IP ou le port est bloqué
-      Alert.alert("Erreur Réseau", "Impossible de contacter le serveur de calcul.");
+      console.error('Erreur Fetch Vercel:', e); 
+      Alert.alert("Erreur de calcul", "Le serveur de trajet ne répond pas.");
     }
     return null;
 };
