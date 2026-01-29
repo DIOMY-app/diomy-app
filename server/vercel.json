@@ -1,10 +1,12 @@
 {
   "version": 2,
-  "public": false,
-  "cleanUrls": true,
+  "functions": {
+    "api/main.js": {
+      "runtime": "node@20.x"
+    }
+  },
   "rewrites": [
-    { "source": "/api/ping", "destination": "api/index.js" },
-    { "source": "/api/route", "destination": "api/index.js" },
-    { "source": "/ping", "destination": "api/index.js" }
+    { "source": "/api/(.*)", "destination": "api/main.js" },
+    { "source": "/ping", "destination": "api/main.js" }
   ]
 }
