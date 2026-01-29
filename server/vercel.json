@@ -1,8 +1,8 @@
 {
   "version": 2,
-  "builds": [
-    { "src": "api/main.js", "use": "@vercel/node" }
-  ],
+  "functions": {
+    "api/main.js": { "runtime": "node@20.x" }
+  },
   "rewrites": [
     { "source": "/api/(.*)", "destination": "api/main.js" }
   ]
