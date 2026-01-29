@@ -1,14 +1,13 @@
 {
   "version": 2,
-  "functions": {
-    "api/index.js": {
-      "runtime": "node@20.x"
-    }
-  },
+  "buildCommand": "echo 'No build needed'",
+  "installCommand": "echo 'No install needed'",
+  "outputDirectory": ".",
   "rewrites": [
     { "source": "/api/(.*)", "destination": "api/index.js" }
   ],
   "ignore": [
-    "api/index.ts"
+    "api/index.ts",
+    "node_modules"
   ]
 }
