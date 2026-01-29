@@ -1,9 +1,12 @@
 {
   "version": 2,
   "functions": {
-    "api/main.js": { "runtime": "node@20.x" }
+    "api/main.js": {
+      "runtime": "nodejs20.x"
+    }
   },
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "api/main.js" }
+    { "source": "/api/(.*)", "destination": "api/main.js" },
+    { "source": "/ping", "destination": "api/main.js" }
   ]
 }
