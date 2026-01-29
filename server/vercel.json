@@ -1,12 +1,9 @@
 {
   "version": 2,
-  "functions": {
-    "api/main.js": {
-      "runtime": "node@20.x"
-    }
-  },
+  "builds": [
+    { "src": "api/main.js", "use": "@vercel/node" }
+  ],
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "api/main.js" },
-    { "source": "/ping", "destination": "api/main.js" }
+    { "source": "/api/(.*)", "destination": "api/main.js" }
   ]
 }

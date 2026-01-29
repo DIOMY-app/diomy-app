@@ -2230,7 +2230,7 @@ var callBindBasic = __nccwpck_require__(3967);
 /** @type {(thisArg: string, searchString: string, position?: number) => number} */
 var $indexOf = callBindBasic([GetIntrinsic('%String.prototype.indexOf%')]);
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = function callBoundIntrinsic(name, allowMissing) {
 	/* eslint no-extra-parens: 0 */
 
@@ -5791,7 +5791,7 @@ function encodeUrl (url) {
 "use strict";
 
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 var $defineProperty = Object.defineProperty || false;
 if ($defineProperty) {
 	try {
@@ -5825,7 +5825,7 @@ module.exports = EvalError;
 "use strict";
 
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = Error;
 
 
@@ -5897,7 +5897,7 @@ module.exports = URIError;
 "use strict";
 
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = Object;
 
 
@@ -5919,7 +5919,7 @@ var $TypeError = __nccwpck_require__(4748);
 
 var toStringTag = hasToStringTag ? Symbol.toStringTag : null;
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = function setToStringTag(object, value) {
 	var overrideIfSet = arguments.length > 2 && !!arguments[2] && arguments[2].force;
 	var nonConfigurable = arguments.length > 2 && !!arguments[2] && arguments[2].nonConfigurable;
@@ -12936,7 +12936,7 @@ var originalGetProto = __nccwpck_require__(289);
 
 var getDunderProto = __nccwpck_require__(487);
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = reflectGetProto
 	? function getProto(O) {
 		// @ts-expect-error TS can't narrow inside a closure, for some reason
@@ -12978,7 +12978,7 @@ module.exports = Object.getOwnPropertyDescriptor;
 "use strict";
 
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 var $gOPD = __nccwpck_require__(9020);
 
 if ($gOPD) {
@@ -13004,7 +13004,7 @@ module.exports = $gOPD;
 var origSymbol = typeof Symbol !== 'undefined' && Symbol;
 var hasSymbolSham = __nccwpck_require__(5388);
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = function hasNativeSymbols() {
 	if (typeof origSymbol !== 'function') { return false; }
 	if (typeof Symbol !== 'function') { return false; }
@@ -13078,7 +13078,7 @@ module.exports = function hasSymbols() {
 
 var hasSymbols = __nccwpck_require__(5388);
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = function hasToStringTagShams() {
 	return hasSymbols() && !!Symbol.toStringTag;
 };
@@ -13096,7 +13096,7 @@ var call = Function.prototype.call;
 var $hasOwn = Object.prototype.hasOwnProperty;
 var bind = __nccwpck_require__(8418);
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = bind.call(call, $hasOwn);
 
 
@@ -23678,7 +23678,7 @@ var listDelete = function (objects, key) {
 	}
 };
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = function getSideChannelList() {
 	/** @typedef {ReturnType<typeof getSideChannelList>} Channel */
 	/** @typedef {Parameters<Channel['get']>[0]} K */
@@ -23749,8 +23749,8 @@ var $mapDelete = callBound('Map.prototype.delete', true);
 /** @type {<K, V>(thisArg: Map<K, V>) => number} */
 var $mapSize = callBound('Map.prototype.size', true);
 
-/** @type {import('.')} */
-module.exports = !!$Map && /** @type {Exclude<import('.'), false>} */ function getSideChannelMap() {
+/** @type {import('./index.ts')} */
+module.exports = !!$Map && /** @type {Exclude<import('./index.ts'), false>} */ function getSideChannelMap() {
 	/** @typedef {ReturnType<typeof getSideChannelMap>} Channel */
 	/** @typedef {Parameters<Channel['get']>[0]} K */
 	/** @typedef {Parameters<Channel['set']>[1]} V */
@@ -23824,9 +23824,9 @@ var $weakMapHas = callBound('WeakMap.prototype.has', true);
 /** @type {<K extends object, V>(thisArg: WeakMap<K, V>, key: K) => boolean} */
 var $weakMapDelete = callBound('WeakMap.prototype.delete', true);
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = $WeakMap
-	? /** @type {Exclude<import('.'), false>} */ function getSideChannelWeakMap() {
+	? /** @type {Exclude<import('./index.ts'), false>} */ function getSideChannelWeakMap() {
 		/** @typedef {ReturnType<typeof getSideChannelWeakMap>} Channel */
 		/** @typedef {Parameters<Channel['get']>[0]} K */
 		/** @typedef {Parameters<Channel['set']>[1]} V */
@@ -23907,7 +23907,7 @@ var getSideChannelWeakMap = __nccwpck_require__(1356);
 
 var makeChannel = getSideChannelWeakMap || getSideChannelMap || getSideChannelList;
 
-/** @type {import('.')} */
+/** @type {import('./index.ts')} */
 module.exports = function getSideChannel() {
 	/** @typedef {ReturnType<typeof getSideChannel>} Channel */
 
