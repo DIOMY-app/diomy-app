@@ -50677,7 +50677,7 @@ function registerOAuthRoutes(app) {
         }
         try {
             // On interroge OSRM en interne sur le VPS (Port 5000)
-            const osrmUrl = `http://127.0.0.1:5000/route/v1/driving/${start};${end}?overview=full&geometries=geojson`;
+            const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson`;
             const response = await fetch(osrmUrl);
             const data = await response.json();
             // On renvoie les données à l'application mobile
