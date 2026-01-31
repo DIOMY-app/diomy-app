@@ -23,26 +23,28 @@ app.use(express.urlencoded({ limit: "50mb", extended: true }));
 registerOAuthRoutes(app);
 
 app.get("/api/health", (_req, res) => {
-  res.json({ ok: true, deployment: "Vercel-Photon-FINAL-V1", timestamp: Date.now() });
+  res.json({ ok: true, engine: "Hostinger-Korhogo", timestamp: Date.now() });
 });
 
+// 🛰️ OSRM (Itinéraire via ton Hostinger si installé, sinon public par défaut)
 app.get("/api/route", async (req, res) => {
   const { start, end } = req.query;
   try {
-    const osrmUrl = "https://router.project-osrm.org/route/v1/driving/" + start + ";" + end + "?overview=full&geometries=geojson&steps=true";
-    const response = await fetch(osrmUrl);
+    const response = await fetch("https://router.project-osrm.org/route/v1/driving/" + start + ";" + end + "?overview=full&geometries=geojson&steps=true");
     const data = await response.json();
     res.json(data);
   } catch (e) { res.status(500).json({ error: "Erreur OSRM" }); }
 });
 
+// 📍 PHOTON (Ton serveur Hostinger dédié !)
 app.get("/api/search", async (req, res) => {
   const { q } = req.query;
   try {
-    const response = await fetch("https://photon.komoot.io/api/?q=" + encodeURIComponent(String(q)) + "&limit=10");
+    // Appel direct à TON serveur Hostinger
+    const response = await fetch("http://72.62.235.2:2322/api/?q=" + encodeURIComponent(String(q)) + "&limit=10");
     const data = await response.json();
     res.json(data);
-  } catch (e) { res.status(500).json({ error: "Erreur Photon" }); }
+  } catch (e) { res.status(500).json({ error: "Erreur moteur Hostinger" }); }
 });
 
 app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
