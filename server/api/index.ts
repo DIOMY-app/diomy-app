@@ -31,48 +31,39 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, deployment: "Vercel", timestamp: Date.now() });
 });
 
-// ✅ ROUTE CORRIGÉE : Utilise l'URL publique et gère les erreurs de fetch
+// 🛰️ PONT GPS OSRM (Itinéraires)
 app.get("/api/route", async (req, res) => {
   const { start, end } = req.query;
-
-  if (!start || !end) {
-    return res.status(400).json({ error: "Paramètres start et end requis" });
-  }
+  if (!start || !end) return res.status(400).json({ error: "Paramètres start et end requis" });
 
   try {
-    const queryStart = String(start).trim();
-    const queryEnd = String(end).trim();
-
-    // On force l'URL publique de l'API OSRM (Demo server)
-    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${queryStart};${queryEnd}?overview=full&geometries=geojson&steps=true`;
-    
-    console.log("Appel OSRM vers:", osrmUrl);
-
-    const response = await fetch(osrmUrl, {
-        method: 'GET',
-        headers: { 'Accept': 'application/json' }
-    });
-    
-    if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`OSRM API error: ${response.status} - ${errorText}`);
-    }
-
-    const data = await response.json() as any;
-
-    if (data.code !== "Ok") {
-      return res.status(500).json({ error: "Erreur retournée par OSRM", details: data });
-    }
-
+    const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson&steps=true`;
+    const response = await fetch(osrmUrl);
+    const data = await response.json();
     res.json(data);
-
   } catch (error: any) {
-    console.error("[GPS-BRIDGE] Erreur critique itinéraire:", error.message);
-    res.status(500).json({ 
-        error: "Erreur lors du calcul de l'itinéraire",
-        details: error.message,
-        hint: "Vérifiez que le serveur OSRM public est accessible" 
-    });
+    console.error("[GPS-BRIDGE] Erreur OSRM:", error.message);
+    res.status(500).json({ error: "Erreur lors du calcul de l'itinéraire" });
+  }
+});
+
+// 📍 PONT PHOTON (Recherche d'adresses)
+app.get("/api/search", async (req, res) => {
+  const { q, limit, lang } = req.query;
+  if (!q) return res.status(400).json({ error: "Le paramètre de recherche 'q' est requis" });
+
+  try {
+    // On redirige vers l'instance publique de Photon
+    const photonUrl = `https://photon.komoot.io/api/?q=${encodeURIComponent(String(q))}&limit=${limit || 10}&lang=${lang || 'fr'}`;
+    
+    console.log("Appel Photon vers:", photonUrl);
+
+    const response = await fetch(photonUrl);
+    const data = await response.json();
+    res.json(data);
+  } catch (error: any) {
+    console.error("[PHOTON-BRIDGE] Erreur recherche:", error.message);
+    res.status(500).json({ error: "Erreur lors de la recherche d'adresse" });
   }
 });
 
