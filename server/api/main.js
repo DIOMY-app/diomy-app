@@ -69427,31 +69427,30 @@ app.use(express_default().json({ limit: "50mb" }));
 app.use(express_default().urlencoded({ limit: "50mb", extended: true }));
 registerOAuthRoutes(app);
 app.get("/api/health", (_req, res) => {
-    res.json({ ok: true, engine: "Hostinger-Korhogo", timestamp: Date.now() });
+    res.json({ ok: true, engine: "Full-Hostinger-Korhogo", timestamp: Date.now() });
 });
-// 🛰️ OSRM (Itinéraire via ton Hostinger si installé, sinon public par défaut)
+// 🛰️ OSRM (Ton serveur Hostinger !)
 app.get("/api/route", async (req, res) => {
     const { start, end } = req.query;
     try {
-        const response = await fetch("https://router.project-osrm.org/route/v1/driving/" + start + ";" + end + "?overview=full&geometries=geojson&steps=true");
+        const response = await fetch("http://72.62.235.2:5000/route/v1/driving/" + start + ";" + end + "?overview=full&geometries=geojson&steps=true");
         const data = await response.json();
         res.json(data);
     }
     catch (e) {
-        res.status(500).json({ error: "Erreur OSRM" });
+        res.status(500).json({ error: "Erreur moteur OSRM Hostinger" });
     }
 });
-// 📍 PHOTON (Ton serveur Hostinger dédié !)
+// 📍 PHOTON (Ton serveur Hostinger !)
 app.get("/api/search", async (req, res) => {
     const { q } = req.query;
     try {
-        // Appel direct à TON serveur Hostinger
         const response = await fetch("http://72.62.235.2:2322/api/?q=" + encodeURIComponent(String(q)) + "&limit=10");
         const data = await response.json();
         res.json(data);
     }
     catch (e) {
-        res.status(500).json({ error: "Erreur moteur Hostinger" });
+        res.status(500).json({ error: "Erreur moteur Photon Hostinger" });
     }
 });
 app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext: createContext }));
