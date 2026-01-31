@@ -31,7 +31,7 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, deployment: "Vercel", timestamp: Date.now() });
 });
 
-// ✅ ROUTE CORRIGÉE POUR LE PRIX ET LA DISTANCE
+// ✅ ROUTE CORRIGÉE : Utilise l'URL publique et gère les erreurs de fetch
 app.get("/api/route", async (req, res) => {
   const { start, end } = req.query;
 
@@ -40,21 +40,22 @@ app.get("/api/route", async (req, res) => {
   }
 
   try {
-    // Nettoyage des paramètres pour éviter les espaces ou caractères spéciaux
     const queryStart = String(start).trim();
     const queryEnd = String(end).trim();
 
+    // On force l'URL publique de l'API OSRM (Demo server)
     const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${queryStart};${queryEnd}?overview=full&geometries=geojson&steps=true`;
     
-    // On utilise le fetch natif de Node 18+
-    const response = await fetch(osrmUrl);
+    console.log("Appel OSRM vers:", osrmUrl);
+
+    const response = await fetch(osrmUrl, {
+        method: 'GET',
+        headers: { 'Accept': 'application/json' }
+    });
     
     if (!response.ok) {
         const errorText = await response.text();
-        return res.status(response.status).json({ 
-            error: "Le moteur de carte (OSRM) a refusé la requête", 
-            details: errorText 
-        });
+        throw new Error(`OSRM API error: ${response.status} - ${errorText}`);
     }
 
     const data = await response.json() as any;
@@ -63,16 +64,14 @@ app.get("/api/route", async (req, res) => {
       return res.status(500).json({ error: "Erreur retournée par OSRM", details: data });
     }
 
-    // Succès : on renvoie les données à l'application
     res.json(data);
 
   } catch (error: any) {
-    // 🔍 DEBUG PRÉCIS : On renvoie la cause réelle de l'erreur
-    console.error("Erreur calcul itinéraire:", error);
+    console.error("[GPS-BRIDGE] Erreur critique itinéraire:", error.message);
     res.status(500).json({ 
-        error: "Erreur interne lors du calcul de l'itinéraire",
-        message: error.message,
-        hint: "Vérifiez que les coordonnées sont au format 'lon,lat'" 
+        error: "Erreur lors du calcul de l'itinéraire",
+        details: error.message,
+        hint: "Vérifiez que le serveur OSRM public est accessible" 
     });
   }
 });
@@ -85,5 +84,4 @@ app.use(
   }),
 );
 
-// --- EXPORT POUR VERCEL ---
 export default app;
