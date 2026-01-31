@@ -1,7 +1,10 @@
 {
   "name": "diomy-backend",
   "version": "1.0.0",
-  "main": "server/api/index.ts",
+  "main": "api/main.js",
+  "engines": {
+    "node": "20.x"
+  },
   "dependencies": {
     "@trpc/server": "^10.38.0",
     "axios": "^1.13.4",
