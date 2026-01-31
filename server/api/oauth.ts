@@ -40,31 +40,27 @@ async function syncUser(userInfo: {
   );
 }
 
-function buildUserResponse(
-  user:
-    | Awaited<ReturnType<typeof getUserByOpenId>>
-    | {
-        openId: string;
-        name?: string | null;
-        email?: string | null;
-        loginMethod?: string | null;
-        lastSignedIn?: Date | null;
-      },
-) {
+/**
+ * ✅ CORRECTION : Utilisation de 'any' ou d'un cast explicite 
+ * pour éviter les erreurs "Property does not exist on type {}"
+ */
+function buildUserResponse(user: any) {
   return {
-    id: (user as any)?.id ?? null,
+    id: user?.id ?? null,
     openId: user?.openId ?? null,
     name: user?.name ?? null,
     email: user?.email ?? null,
     loginMethod: user?.loginMethod ?? null,
-    lastSignedIn: (user?.lastSignedIn ?? new Date()).toISOString(),
+    lastSignedIn: user?.lastSignedIn 
+      ? (typeof user.lastSignedIn === 'string' ? user.lastSignedIn : user.lastSignedIn.toISOString())
+      : new Date().toISOString(),
   };
 }
 
 export function registerOAuthRoutes(app: Express) {
 
   // ==========================================
-  // 🛰️ AJOUT : ROUTE PONT GPS OSRM
+  // 🛰️ ROUTE PONT GPS OSRM (CORRIGÉE)
   // ==========================================
   app.get("/api/route", async (req: Request, res: Response) => {
     const { start, end } = req.query;
@@ -74,13 +70,12 @@ export function registerOAuthRoutes(app: Express) {
     }
 
     try {
-      // On interroge OSRM en interne sur le VPS (Port 5000)
-      const osrmUrl = `http://127.0.0.1:5000/route/v1/driving/${start};${end}?overview=full&geometries=geojson`;
+      // ✅ URL Publique pour Vercel
+      const osrmUrl = `https://router.project-osrm.org/route/v1/driving/${start};${end}?overview=full&geometries=geojson&steps=true`;
       
       const response = await fetch(osrmUrl);
       const data = await response.json();
 
-      // On renvoie les données à l'application mobile
       res.json(data);
     } catch (error) {
       console.error("[GPS-BRIDGE] Erreur OSRM:", error);
@@ -89,21 +84,20 @@ export function registerOAuthRoutes(app: Express) {
   });
 
   // ==========================================
-  // 🔐 TES ROUTES INITIALES (OAUTH)
+  // 🔐 ROUTES INITIALES (OAUTH)
   // ==========================================
   app.get("/api/oauth/callback", async (req: Request, res: Response) => {
     const code = getQueryParam(req, "code");
     const state = getQueryParam(req, "state");
 
     if (!code || !state) {
-      res.status(400).json({ error: "code and state are required" });
-      return;
+      return res.status(400).json({ error: "code and state are required" });
     }
 
     try {
       const tokenResponse = await sdk.exchangeCodeForToken(code, state);
       const userInfo = await sdk.getUserInfo(tokenResponse.accessToken);
-      await syncUser(userInfo);
+      const user = await syncUser(userInfo);
       const sessionToken = await sdk.createSessionToken(userInfo.openId!, {
         name: userInfo.name || "",
         expiresInMs: ONE_YEAR_MS,
@@ -128,8 +122,7 @@ export function registerOAuthRoutes(app: Express) {
     const state = getQueryParam(req, "state");
 
     if (!code || !state) {
-      res.status(400).json({ error: "code and state are required" });
-      return;
+      return res.status(400).json({ error: "code and state are required" });
     }
 
     try {
@@ -176,11 +169,9 @@ export function registerOAuthRoutes(app: Express) {
       const user = await sdk.authenticateRequest(req);
       const authHeader = req.headers.authorization || req.headers.Authorization;
       if (typeof authHeader !== "string" || !authHeader.startsWith("Bearer ")) {
-        res.status(400).json({ error: "Bearer token required" });
-        return;
+        return res.status(400).json({ error: "Bearer token required" });
       }
       const token = authHeader.slice("Bearer ".length).trim();
-
 
       const cookieOptions = getSessionCookieOptions(req);
       res.cookie(COOKIE_NAME, token, { ...cookieOptions, maxAge: ONE_YEAR_MS });
@@ -190,17 +181,4 @@ export function registerOAuthRoutes(app: Express) {
       res.status(401).json({ error: "Invalid token" });
     }
   });
-
-  // --- NOUVELLE ROUTE GPS DIOMY ---
-  app.get("/api/route", async (req: Request, res: Response) => {
-    const { start, end } = req.query;
-    try {
-      const response = await fetch(`http://localhost:5000/route/v1/driving/${start};${end}?overview=full&geometries=geojson`);
-      const data = await response.json();
-      res.json(data);
-    } catch (error) {
-      res.status(500).json({ error: "Erreur OSRM" });
-    }
-  });
 }
-
