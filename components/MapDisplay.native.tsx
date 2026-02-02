@@ -16,7 +16,7 @@ import SwipeButton from 'react-native-swipe-button';
 // ✅ NOUVEAUX IMPORTS PHASE 2 (Cloisonnement)
 import ServiceSelector from './ServiceSelector';
 import DeliveryForm from './DeliveryForm';
-
+import { Audio } from 'expo-av'; // ⬅️ À ajouter en haut avec les autres imports
 if (Device.isDevice) {
     Notifications.setNotificationHandler({
       handleNotification: async () => ({
@@ -119,6 +119,53 @@ export default function MapDisplay({
       Speech.speak(text, { language: 'fr', pitch: 1, rate: 0.95 });
     } catch (e) { console.error("Speech error:", e); }
   };
+
+
+const playAlertSound = async () => {
+  try {
+    // 1. Vibration immédiate
+    Vibration.vibrate([0, 500, 200, 500]);
+
+    // 2. Lecture du fichier audio
+    const { sound } = await Audio.Sound.createAsync(
+       require('../assets/sounds/2_rythme_poro.wav')
+    );
+    
+    await sound.playAsync();
+
+    // 3. Libérer la mémoire après lecture
+    sound.setOnPlaybackStatusUpdate((status) => {
+      if (status.isLoaded && status.didJustFinish) {
+        sound.unloadAsync();
+      }
+    });
+  } catch (e) {
+    console.log("Erreur audio (secours voix) :", e);
+    // Si le fichier manque ou erreur, on utilise la voix
+    speak("Attention, nouvelle mission disponible.");
+  }
+};
+
+// Garde en mémoire la dernière instruction lue pour éviter de se répéter
+const lastInstructionRef = useRef<string>("");
+
+const checkNavigationGuidance = (latitude: number, longitude: number, steps: any[]) => {
+  if (!steps || steps.length === 0) return;
+
+  // On cherche l'étape la plus proche (moins de 30 mètres)
+  const upcomingStep = steps.find(step => {
+    const stepLat = step.maneuver.location[1];
+    const stepLon = step.maneuver.location[0];
+    const distance = calculateDistance(latitude, longitude, stepLat, stepLon) * 1000;
+    return distance < 30; // 30 mètres avant l'intersection
+  });
+
+  if (upcomingStep && upcomingStep.maneuver.instruction !== lastInstructionRef.current) {
+    lastInstructionRef.current = upcomingStep.maneuver.instruction;
+    speak(upcomingStep.maneuver.instruction);
+    
+  }
+};
 
   // ✅ FONCTION NOTIFICATION PUSH GRATUITE
   const sendPushNotification = async (title: string, body: string) => {
@@ -344,7 +391,10 @@ export default function MapDisplay({
             const d = calculateDistance(lastLocForDistance.current.lat, lastLocForDistance.current.lon, latitude, longitude);
             setRealTraveledDistance(prev => prev + d);
           }
-          
+          // ✅ AJOUT ICI : Si une course est en cours, on vérifie le guidage
+    if (role === 'chauffeur' && rideStatus === 'in_progress' && finalRideData?.steps) {
+      checkNavigationGuidance(latitude, longitude, finalRideData.steps);
+    }
           lastLocForDistance.current = { lat: latitude, lon: longitude };
           
           if (!hasCenteredInitially.current) {
@@ -425,12 +475,15 @@ export default function MapDisplay({
   
   if (status === 'accepted') {
     speak("Trajet vers le point de retrait.");
-    // On récupère le trajet
     const r = await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, ride.pickup_lat, ride.pickup_lon);
     
-    // ⬅️ AJOUT ICI : On lit la première instruction si elle existe
-    if (r && r.legs && r.legs[0].steps[0]) {
-      speak(r.legs[0].steps[0].maneuver.instruction);
+    if (r && r.legs && r.legs[0].steps) {
+      // ✅ ON STOCK LES ÉTAPES POUR LE GUIDAGE EN ROULANT
+      setFinalRideData((prev: any) => ({ ...prev, steps: r.legs[0].steps }));
+      
+      if (r.legs[0].steps[0]) {
+        speak(r.legs[0].steps[0].maneuver.instruction);
+      }
     }
 
   } else if (status === 'in_progress') {
@@ -439,21 +492,15 @@ export default function MapDisplay({
     const destLat = activeService === 'delivery' ? ride.delivery_lat : ride.dest_lat;
     const destLon = activeService === 'delivery' ? ride.delivery_lon : ride.dest_lon;
     
-    // On récupère le trajet
     const r = await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, destLat, destLon);
 
-    // ⬅️ AJOUT ICI : On lit la première instruction pour le trajet final
-    if (r && r.legs && r.legs[0].steps[0]) {
-      speak(r.legs[0].steps[0].maneuver.instruction);
-    }
-  }
-};
-const playVoiceGuidance = async (routeData: any) => {
-  if (routeData.legs && routeData.legs[0].steps) {
-    const firstStep = routeData.legs[0].steps[0];
-    if (firstStep && firstStep.maneuver) {
-      // Lit la première instruction de direction
-      speak(firstStep.maneuver.instruction);
+    if (r && r.legs && r.legs[0].steps) {
+      // ✅ ON STOCK AUSSI LES ÉTAPES ICI POUR LA NAVIGATION FINALE
+      setFinalRideData((prev: any) => ({ ...prev, steps: r.legs[0].steps }));
+      
+      if (r.legs[0].steps[0]) {
+        speak(r.legs[0].steps[0].maneuver.instruction);
+      }
     }
   }
 };
@@ -666,30 +713,34 @@ setCanDoTaxi(prof?.can_do_taxi ?? false); // On stocke la permission
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
-        table: 'rides_request', // Table fixe pour le Taxi
+        table: 'rides_request', 
         filter: `status=eq.pending` 
       }, (payload) => {
         const nr = payload.new as any;
         if (nr.driver_id === userId && isOnline && !rideStatus) { 
-          setActiveService('transport'); // On définit le type
-          setIncomingRide(nr);           // On déclenche la modale
+          setActiveService('transport');
+          setIncomingRide(nr);
+          
+          // ✅ ALERTES SONORES ET VOCALES
+          playAlertSound(); 
           speak("Nouvelle demande de taxi.");
-          Vibration.vibrate([0, 500, 200, 500]);
         }
       })
       // 2. ÉCOUTE DES COLIS
       .on('postgres_changes', { 
         event: 'INSERT', 
         schema: 'public', 
-        table: 'delivery_requests', // Table fixe pour le Colis
+        table: 'delivery_requests', 
         filter: `status=eq.pending` 
       }, (payload) => {
         const nr = payload.new as any;
         if (nr.driver_id === userId && isOnline && !rideStatus) { 
-          setActiveService('delivery');  // On définit le type
-          setIncomingRide(nr);           // On déclenche la modale
+          setActiveService('delivery');
+          setIncomingRide(nr);
+          
+          // ✅ ALERTES SONORES ET VOCALES
+          playAlertSound();
           speak("Nouvelle demande de colis.");
-          Vibration.vibrate([0, 500, 200, 500]);
         }
       })
       .subscribe();
