@@ -28,6 +28,11 @@ const config = {
   userInterfaceStyle: "automatic",
   newArchEnabled: true,
   
+  // ✅ DÉPLACÉ ICI : Pour que le fichier .wav soit inclus dans l'APK
+  assetBundlePatterns: [
+    "**/*"
+  ],
+
   extra: {
     supabaseUrl: env.supabaseUrl,
     supabaseAnonKey: env.supabaseAnonKey,
@@ -59,7 +64,6 @@ const config = {
       backgroundColor: "#009199", 
       foregroundImage: "./assets/images/icon.png",
     },
-    // ✅ Cette ligne sera maintenant acceptée
     usesCleartextTraffic: true,
     edgeToEdgeEnabled: true,
     predictiveBackGestureEnabled: false,
@@ -70,7 +74,8 @@ const config = {
       "FOREGROUND_SERVICE",
       "CAMERA",
       "READ_EXTERNAL_STORAGE",
-      "WRITE_EXTERNAL_STORAGE"
+      "WRITE_EXTERNAL_STORAGE",
+      "RECORD_AUDIO" // ✅ AJOUTÉ
     ],
     intentFilters: [
       {
@@ -102,6 +107,7 @@ const config = {
         "cameraPermission": "Autoriser DIOMY à utiliser l'appareil photo pour votre profil."
       }
     ],
+    "expo-av", // ✅ AJOUTÉ : Indispensable pour ton code actuel
     [
       "expo-audio",
       {
@@ -141,8 +147,7 @@ const config = {
   experiments: {
     typedRoutes: true,
     reactCompiler: true,
+    // ❌ SUPPRIMÉ D'ICI
   },
 };
-
-// ✅ On exporte avec "as any" pour valider la configuration finale sans erreurs de types
 export default config as any;

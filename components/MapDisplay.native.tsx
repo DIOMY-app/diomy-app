@@ -123,26 +123,17 @@ export default function MapDisplay({
 
 const playAlertSound = async () => {
   try {
-    // 1. Vibration immédiate
     Vibration.vibrate([0, 500, 200, 500]);
-
-    // 2. Lecture du fichier audio
-    const { sound } = await Audio.Sound.createAsync(
-       require('../assets/sounds/2_rythme_poro.wav')
-    );
     
-    await sound.playAsync();
-
-    // 3. Libérer la mémoire après lecture
-    sound.setOnPlaybackStatusUpdate((status) => {
-      if (status.isLoaded && status.didJustFinish) {
-        sound.unloadAsync();
-      }
-    });
+    // ✅ On vérifie si Audio existe avant de l'utiliser
+    if (Audio && Audio.Sound) {
+      const { sound } = await Audio.Sound.createAsync(
+        require('../assets/sounds/2_rythme_poro.wav')
+      );
+      await sound.playAsync();
+    }
   } catch (e) {
-    console.log("Erreur audio (secours voix) :", e);
-    // Si le fichier manque ou erreur, on utilise la voix
-    speak("Attention, nouvelle mission disponible.");
+    console.log("Audio non supporté par cette version de l'APK");
   }
 };
 
