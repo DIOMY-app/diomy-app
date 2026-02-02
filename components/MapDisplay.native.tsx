@@ -372,7 +372,7 @@ export default function MapDisplay({
 
   const getRoute = async (startLat: number, startLon: number, endLat: number, endLon: number) => {
     // ✅ Utilisation du nouveau lien Vercel Bundlé
-    const url = `https://final-deploy-bice.vercel.app/api/route?start=${startLon},${startLat}&end=${endLon},${endLat}`;
+    const url = `https://diomy-app.vercel.app/api/route?start=${startLon},${startLat}&end=${endLon},${endLat}`;
     
     console.log("Appel API Route:", url);
 
@@ -418,23 +418,45 @@ export default function MapDisplay({
 };
 
   const updateDriverNavigation = async (status: string, rideId: string) => {
-    const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
-    const { data: ride } = await supabase.from(table).select('*').eq('id', rideId).single();
-    if (!ride) return;
-    const myLoc = await Location.getCurrentPositionAsync({});
-    
-    if (status === 'accepted') {
-      speak("Trajet vers le point de retrait.");
-      await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, ride.pickup_lat, ride.pickup_lon);
-    } else if (status === 'in_progress') {
-      speak("Course débutée.");
-      setRealTraveledDistance(0); 
-      // Pour les colis, la destination est dans delivery_lat/lon
-      const destLat = activeService === 'delivery' ? ride.delivery_lat : ride.dest_lat;
-      const destLon = activeService === 'delivery' ? ride.delivery_lon : ride.dest_lon;
-      await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, destLat, destLon);
-    }
-  };
+  const table = activeService === 'delivery' ? 'delivery_requests' : 'rides_request';
+  const { data: ride } = await supabase.from(table).select('*').eq('id', rideId).single();
+  if (!ride) return;
+  const myLoc = await Location.getCurrentPositionAsync({});
+  
+  if (status === 'accepted') {
+    speak("Trajet vers le point de retrait.");
+    // On récupère le trajet
+    const r = await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, ride.pickup_lat, ride.pickup_lon);
+    
+    // ⬅️ AJOUT ICI : On lit la première instruction si elle existe
+    if (r && r.legs && r.legs[0].steps[0]) {
+      speak(r.legs[0].steps[0].maneuver.instruction);
+    }
+
+  } else if (status === 'in_progress') {
+    speak("Course débutée.");
+    setRealTraveledDistance(0); 
+    const destLat = activeService === 'delivery' ? ride.delivery_lat : ride.dest_lat;
+    const destLon = activeService === 'delivery' ? ride.delivery_lon : ride.dest_lon;
+    
+    // On récupère le trajet
+    const r = await getRoute(myLoc.coords.latitude, myLoc.coords.longitude, destLat, destLon);
+
+    // ⬅️ AJOUT ICI : On lit la première instruction pour le trajet final
+    if (r && r.legs && r.legs[0].steps[0]) {
+      speak(r.legs[0].steps[0].maneuver.instruction);
+    }
+  }
+};
+const playVoiceGuidance = async (routeData: any) => {
+  if (routeData.legs && routeData.legs[0].steps) {
+    const firstStep = routeData.legs[0].steps[0];
+    if (firstStep && firstStep.maneuver) {
+      // Lit la première instruction de direction
+      speak(firstStep.maneuver.instruction);
+    }
+  }
+};
 
   const handleLocationSelect = async (lat: number, lon: number, name: string) => {
     // 1. Mise à jour immédiate de l'interface
