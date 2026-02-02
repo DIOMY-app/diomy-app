@@ -49,3 +49,7 @@ app.get("/api/search", async (req, res) => {
 app.use("/api/trpc", createExpressMiddleware({ router: appRouter, createContext }));
 
 export default app;
+const PORT = process.env.PORT || 3000;
+app.listen(PORT, () => {
+  console.log(`🚀 Serveur DIOMY prêt sur le port ${PORT}`);
+});
