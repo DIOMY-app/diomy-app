@@ -26,14 +26,27 @@ app.get("/api/health", (_req, res) => {
   res.json({ ok: true, engine: "Full-Hostinger-Korhogo", timestamp: Date.now() });
 });
 
-// 🛰️ OSRM (Ton serveur Hostinger !)
+// 🛰️ OSRM (Version corrigée pour ton APK)
 app.get("/api/route", async (req, res) => {
   const { start, end } = req.query;
   try {
     const response = await fetch("http://72.62.235.2:5000/route/v1/driving/" + start + ";" + end + "?overview=full&geometries=geojson&steps=true");
     const data = await response.json();
-    res.json(data);
-  } catch (e) { res.status(500).json({ error: "Erreur moteur OSRM Hostinger" }); }
+
+    if (data.code === "Ok" && data.routes && data.routes[0]) {
+      // ON REPREND LA LOGIQUE QUI FONCTIONNAIT :
+      // On ajoute la distance et la durée à la racine pour l'APK
+      res.json({
+        ...data,
+        distance: data.routes[0].distance,
+        duration: data.routes[0].duration
+      });
+    } else {
+      res.json(data);
+    }
+  } catch (e) { 
+    res.status(500).json({ error: "Erreur moteur OSRM Hostinger" }); 
+  }
 });
 
 // 📍 PHOTON (Ton serveur Hostinger !)
