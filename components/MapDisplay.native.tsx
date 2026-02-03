@@ -887,7 +887,7 @@ map.on('moveend', function() {
                     onChangeText={async (t) => {
                       setPickupAddress(t);
                       if (t.length > 2) {
-                       const res = await fetch(`http://72.62.235.2:3000/api/search?q=${encodeURIComponent(t)}&bbox=-5.7,9.35,-5.5,9.6`);
+                       const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.7,9.35,-5.5,9.6&limit=10`);
                         const d = await res.json(); setSuggestions(d.features || []);
                       } else { setSuggestions([]); }
                     }} 
@@ -905,7 +905,7 @@ map.on('moveend', function() {
     onChangeText={async (t) => {
       setDestination(t);
       if (t.length > 2) {
-        const res = await fetch(`http://72.62.235.2:3000/api/search?q=${encodeURIComponent(t)}&bbox=-5.7,9.35,-5.5,9.6`);
+        const res = await fetch(`https://photon.komoot.io/api/?q=${encodeURIComponent(t)}&bbox=-5.7,9.35,-5.5,9.6&limit=10`);
                 const d = await res.json(); 
         setSuggestions(d.features || []);
       } else { 
